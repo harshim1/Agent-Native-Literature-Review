@@ -22,6 +22,9 @@ export default function App() {
   const [paperSummaries, setPaperSummaries] = useState({});
   const [savedPapers, setSavedPapers] = useState(new Set());
   const [searchHistory, setSearchHistory] = useState([]);
+  const [comparisonPapers, setComparisonPapers] = useState(new Set());
+  const [showComparison, setShowComparison] = useState(false);
+  const [loadingSummaries, setLoadingSummaries] = useState(new Set());
 
   // Filters
   const [yearFilter, setYearFilter] = useState([2015, 2025]);
@@ -320,6 +323,35 @@ export default function App() {
       newSaved.add(paperId);
     }
     setSavedPapers(newSaved);
+  };
+
+  const toggleComparisonPaper = (paperId) => {
+    const newComparison = new Set(comparisonPapers);
+    if (newComparison.has(paperId)) {
+      newComparison.delete(paperId);
+    } else {
+      if (newComparison.size >= 3) {
+        newComparison.delete(Array.from(newComparison)[0]);
+      }
+      newComparison.add(paperId);
+    }
+    setComparisonPapers(newComparison);
+  };
+
+  const fetchPaperSummary = async (paper) => {
+    if (paperSummaries[paper.paperId]) return;
+
+    setLoadingSummaries(prev => new Set([...prev, paper.paperId]));
+    const summary = await generatePaperSummary(paper);
+    setPaperSummaries(prev => ({
+      ...prev,
+      [paper.paperId]: summary || 'Unable to generate summary'
+    }));
+    setLoadingSummaries(prev => {
+      const next = new Set(prev);
+      next.delete(paper.paperId);
+      return next;
+    });
   };
 
   const generateGrantProposal = async (q, paperList) => {
@@ -640,6 +672,58 @@ export default function App() {
             {/* LANDSCAPE TAB */}
             {activeTab === 'landscape' && (
               <div className="space-y-8">
+                {/* Comparison View */}
+                {comparisonPapers.size > 0 && (
+                  <div className="p-6 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-lg border border-purple-200 dark:border-purple-700">
+                    <div className="flex justify-between items-center mb-4">
+                      <h2 className="text-lg font-bold text-gray-900 dark:text-white">⊙ Comparing {comparisonPapers.size} Paper{comparisonPapers.size !== 1 ? 's' : ''}</h2>
+                      <button
+                        onClick={() => setShowComparison(!showComparison)}
+                        className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded font-medium text-sm transition"
+                      >
+                        {showComparison ? '▼ Hide' : '▶ Show'} Comparison
+                      </button>
+                    </div>
+
+                    {showComparison && (
+                      <div className="grid grid-cols-1 gap-4">
+                        {Array.from(comparisonPapers).map((paperId, idx) => {
+                          const paper = papers.find(p => p.paperId === paperId);
+                          if (!paper) return null;
+                          return (
+                            <div key={idx} className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-purple-200 dark:border-purple-700">
+                              <div className="flex justify-between items-start gap-3 mb-2">
+                                <h3 className="font-bold text-gray-900 dark:text-white">{paper.title}</h3>
+                                <button
+                                  onClick={() => toggleComparisonPaper(paperId)}
+                                  className="px-2 py-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-sm hover:bg-gray-300"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm mb-3">
+                                <div><span className="font-semibold">Year:</span> {paper.year}</div>
+                                <div><span className="font-semibold">Citations:</span> {paper.citationCount}</div>
+                                <div><span className="font-semibold">Authors:</span> {paper.authors?.length || 0}</div>
+                                <div><span className="font-semibold">Source:</span> {paper.paperId.includes('W') ? 'OpenAlex' : 'Semantic'}</div>
+                              </div>
+                              <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">{paper.abstract?.substring(0, 300)}</p>
+                              <a
+                                href={paper.scholarLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 px-3 py-1 bg-blue-100 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded text-xs font-medium hover:bg-blue-200"
+                              >
+                                📖 Read →
+                              </a>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Trends */}
                 {trends.length > 3 && (
                   <div className="p-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
@@ -859,6 +943,17 @@ export default function App() {
                           </div>
                           <div className="flex gap-2 shrink-0">
                             <button
+                              onClick={() => toggleComparisonPaper(paper.paperId)}
+                              className={`px-2 py-1 rounded transition text-sm font-medium ${
+                                comparisonPapers.has(paper.paperId)
+                                  ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400'
+                                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200'
+                              }`}
+                              title="Compare papers"
+                            >
+                              {comparisonPapers.has(paper.paperId) ? '✓' : '⊙'}
+                            </button>
+                            <button
                               onClick={() => toggleSavedPaper(paper.paperId)}
                               className={`px-2 py-1 rounded transition text-sm font-medium ${
                                 savedPapers.has(paper.paperId)
@@ -896,7 +991,22 @@ export default function App() {
                           {paper.scholarSnippet || paper.abstract?.substring(0, 200)}
                         </p>
 
-                        <div>
+                        {/* AI Summary Section */}
+                        {paperSummaries[paper.paperId] && (
+                          <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-700/30">
+                            <p className="text-xs font-semibold text-blue-700 dark:text-blue-400 mb-1">🤖 AI Summary:</p>
+                            <p className="text-xs text-gray-700 dark:text-gray-300">{paperSummaries[paper.paperId]}</p>
+                          </div>
+                        )}
+
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() => fetchPaperSummary(paper)}
+                            disabled={loadingSummaries.has(paper.paperId)}
+                            className="inline-flex items-center gap-1 px-3 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded text-xs font-medium hover:bg-blue-100 dark:hover:bg-blue-900/40 transition disabled:opacity-50"
+                          >
+                            {loadingSummaries.has(paper.paperId) ? '⏳' : '✨'} {loadingSummaries.has(paper.paperId) ? 'Generating...' : 'AI Summary'}
+                          </button>
                           <a
                             href={paper.scholarLink}
                             target="_blank"
@@ -990,17 +1100,81 @@ export default function App() {
                           {collaborators[gap.title] && collaborators[gap.title].length > 0 ? (
                             <div className="space-y-3">
                               {collaborators[gap.title].map((collab, idx) => (
-                                <div key={idx} className="p-3 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 hover:shadow transition">
-                                  <p className="font-semibold text-gray-900 dark:text-white">👤 {collab.name}</p>
-                                  <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                                    Recent publication {collab.year} • Working on related research
-                                  </p>
+                                <div key={idx} className="p-4 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 hover:shadow-md transition">
+                                  <div className="flex justify-between items-start gap-2 mb-2">
+                                    <div>
+                                      <p className="font-semibold text-gray-900 dark:text-white">👤 {collab.name}</p>
+                                      <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">
+                                        Last active: {collab.year}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="flex flex-wrap gap-2 mt-3">
+                                    <a
+                                      href={`https://scholar.google.com/scholar?q="${encodeURIComponent(collab.name)}"`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="px-2 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded text-xs hover:bg-blue-100 dark:hover:bg-blue-900/40 transition"
+                                    >
+                                      🔍 Google Scholar
+                                    </a>
+                                    <a
+                                      href={`https://www.researchgate.net/search?q="${encodeURIComponent(collab.name)}"`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="px-2 py-1 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 rounded text-xs hover:bg-green-100 dark:hover:bg-green-900/40 transition"
+                                    >
+                                      🔗 ResearchGate
+                                    </a>
+                                    <a
+                                      href={`https://orcid.org/search/orcid/${encodeURIComponent(collab.name)}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="px-2 py-1 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 rounded text-xs hover:bg-green-100 dark:hover:bg-green-900/40 transition"
+                                    >
+                                      📋 ORCID
+                                    </a>
+                                    <a
+                                      href={`https://www.linkedin.com/search/results/people/?keywords="${encodeURIComponent(collab.name)}"`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="px-2 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded text-xs hover:bg-blue-100 dark:hover:bg-blue-900/40 transition"
+                                    >
+                                      💼 LinkedIn
+                                    </a>
+                                  </div>
                                 </div>
                               ))}
                             </div>
                           ) : (
                             <div className="p-4 text-center text-gray-500 dark:text-gray-400 text-sm">
-                              No recent collaborators found for this gap. Try searching for related research on Google Scholar or ResearchGate.
+                              <p className="mb-3">No recent researchers found, but you can explore these options:</p>
+                              <div className="flex flex-wrap gap-2 justify-center">
+                                <a
+                                  href={`https://scholar.google.com/scholar?q="${encodeURIComponent(gap.research_question)}"`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded text-xs hover:bg-blue-200 transition"
+                                >
+                                  🔍 Search Google Scholar
+                                </a>
+                                <a
+                                  href={`https://www.semanticscholar.org/search?q="${encodeURIComponent(gap.research_question)}"`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="px-3 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 rounded text-xs hover:bg-purple-200 transition"
+                                >
+                                  📚 Semantic Scholar
+                                </a>
+                                <a
+                                  href={`https://www.researchgate.net/search?q="${encodeURIComponent(gap.research_question)}"`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="px-3 py-1 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded text-xs hover:bg-green-200 transition"
+                                >
+                                  🔗 ResearchGate
+                                </a>
+                              </div>
                             </div>
                           )}
                         </div>
