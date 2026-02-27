@@ -924,96 +924,123 @@ export default function App() {
                     </div>
                   </div>
 
-                  <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
-                    📑 Papers ({filteredAndSortedPapers.length})
+                  <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6 flex items-center gap-2">
+                    <span>📑</span>
+                    Research Papers
+                    <span className="text-sm bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-3 py-1 rounded-full ml-2">
+                      {filteredAndSortedPapers.length} results
+                    </span>
                   </h2>
-                  <div className="space-y-3">
+                  <div className="space-y-4">
                     {filteredAndSortedPapers.map((paper, idx) => (
-                      <div key={idx} className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:shadow-lg transition group">
-                        <div className="flex justify-between items-start gap-3 mb-3">
-                          <div className="flex-1 min-w-0">
-                            <a
-                              href={paper.scholarLink}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="font-semibold text-blue-600 dark:text-blue-400 hover:underline block"
-                            >
-                              {paper.title}
-                            </a>
+                      <div
+                        key={idx}
+                        className="group bg-white dark:bg-gray-800 rounded-xl border-2 border-gray-200 dark:border-gray-700 hover:border-blue-400 dark:hover:border-blue-600 transition-all hover:shadow-xl overflow-hidden"
+                      >
+                        {/* Header Section */}
+                        <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+                          <div className="flex justify-between items-start gap-4 mb-3">
+                            <div className="flex-1 min-w-0">
+                              <a
+                                href={paper.scholarLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xl font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 break-words line-clamp-2 transition"
+                              >
+                                {paper.title}
+                              </a>
+                            </div>
                           </div>
-                          <div className="flex gap-2 shrink-0">
-                            <button
-                              onClick={() => toggleComparisonPaper(paper.paperId)}
-                              className={`px-2 py-1 rounded transition text-sm font-medium ${
-                                comparisonPapers.has(paper.paperId)
-                                  ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400'
-                                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200'
-                              }`}
-                              title="Compare papers"
-                            >
-                              {comparisonPapers.has(paper.paperId) ? '✓' : '⊙'}
-                            </button>
-                            <button
-                              onClick={() => toggleSavedPaper(paper.paperId)}
-                              className={`px-2 py-1 rounded transition text-sm font-medium ${
-                                savedPapers.has(paper.paperId)
-                                  ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'
-                                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200'
-                              }`}
-                            >
-                              {savedPapers.has(paper.paperId) ? '❤️' : '☆'}
-                            </button>
-                            <span className="px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 text-sm rounded-full whitespace-nowrap">
-                              {paper.year}
+
+                          {/* Meta Information Row */}
+                          <div className="flex flex-wrap items-center gap-3 mb-4">
+                            <span className="px-3 py-1 bg-gradient-to-r from-blue-100 to-blue-50 dark:from-blue-900/30 dark:to-blue-900/20 text-blue-700 dark:text-blue-400 rounded-lg font-semibold text-sm">
+                              📅 {paper.year}
+                            </span>
+                            <span className="flex items-center gap-1 px-3 py-1 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400 rounded-lg text-sm font-medium">
+                              <span>📊</span>
+                              <span>{paper.citationCount || 0} citations</span>
+                            </span>
+                            {paper.citationCount > 100 && (
+                              <span className="px-3 py-1 bg-yellow-100 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-600 rounded-lg text-sm font-bold animate-pulse">
+                                🔥 Highly Cited
+                              </span>
+                            )}
+                            <span className="px-3 py-1 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400 rounded-lg text-sm">
+                              👥 {paper.authors?.length || 0} authors
                             </span>
                           </div>
-                        </div>
 
-                        <div className="flex flex-wrap gap-3 mb-3 text-sm text-gray-600 dark:text-gray-400">
-                          <span className="flex items-center gap-1">
-                            <span>📊</span>
-                            <span>{paper.citationCount || 0} citations</span>
-                          </span>
+                          {/* Authors */}
                           {paper.authors && paper.authors.length > 0 && (
-                            <span className="flex items-center gap-1">
-                              <span>👤</span>
-                              <span className="line-clamp-1">{paper.authors.slice(0, 2).map(a => a.name).join(', ')}{paper.authors.length > 2 ? '...' : ''}</span>
-                            </span>
-                          )}
-                          {paper.citationCount > 100 && (
-                            <span className="px-2 py-0.5 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-400 rounded text-xs font-medium">
-                              ⭐ Highly Cited
-                            </span>
+                            <div className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                              <span className="font-medium">Authors:</span> {paper.authors.slice(0, 3).map(a => a.name).join(', ')}{paper.authors.length > 3 ? ` +${paper.authors.length - 3} more` : ''}
+                            </div>
                           )}
                         </div>
 
-                        <p className="text-sm text-gray-700 dark:text-gray-300 line-clamp-2 mb-3">
-                          {paper.scholarSnippet || paper.abstract?.substring(0, 200)}
-                        </p>
+                        {/* Abstract Section */}
+                        <div className="px-6 py-4 bg-gradient-to-b from-gray-50 to-white dark:from-gray-700/50 dark:to-gray-800 border-b border-gray-200 dark:border-gray-700">
+                          <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                            <span className="font-semibold text-gray-900 dark:text-white">Abstract:</span> {paper.scholarSnippet || paper.abstract?.substring(0, 400) || 'No abstract available'}
+                          </p>
+                        </div>
 
-                        {/* AI Summary Section */}
+                        {/* AI Summary Section (Always Visible If Generated) */}
                         {paperSummaries[paper.paperId] && (
-                          <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-700/30">
-                            <p className="text-xs font-semibold text-blue-700 dark:text-blue-400 mb-1">🤖 AI Summary:</p>
-                            <p className="text-xs text-gray-700 dark:text-gray-300">{paperSummaries[paper.paperId]}</p>
+                          <div className="px-6 py-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border-b border-blue-200 dark:border-blue-700/30">
+                            <div className="flex gap-2 mb-2">
+                              <span className="text-lg">🤖</span>
+                              <span className="font-bold text-blue-700 dark:text-blue-400">AI Summary</span>
+                            </div>
+                            <p className="text-sm text-blue-900 dark:text-blue-200">{paperSummaries[paper.paperId]}</p>
                           </div>
                         )}
 
-                        <div className="flex flex-wrap gap-2">
+                        {/* Action Buttons */}
+                        <div className="px-6 py-4 bg-white dark:bg-gray-800 flex flex-wrap gap-2">
                           <button
                             onClick={() => fetchPaperSummary(paper)}
                             disabled={loadingSummaries.has(paper.paperId)}
-                            className="inline-flex items-center gap-1 px-3 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded text-xs font-medium hover:bg-blue-100 dark:hover:bg-blue-900/40 transition disabled:opacity-50"
+                            className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-lg font-semibold text-sm transition-all hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            {loadingSummaries.has(paper.paperId) ? '⏳' : '✨'} {loadingSummaries.has(paper.paperId) ? 'Generating...' : 'AI Summary'}
+                            {loadingSummaries.has(paper.paperId) ? '⏳ Generating...' : '✨ AI Summary'}
                           </button>
+
+                          <button
+                            onClick={() => toggleComparisonPaper(paper.paperId)}
+                            className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg font-semibold text-sm transition-all hover:shadow-lg ${
+                              comparisonPapers.has(paper.paperId)
+                                ? 'bg-purple-600 hover:bg-purple-700 text-white'
+                                : 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 hover:bg-purple-200'
+                            }`}
+                            title="Select for comparison"
+                          >
+                            <span>⊙</span>
+                            {comparisonPapers.has(paper.paperId) ? 'In Comparison' : 'Compare'}
+                          </button>
+
+                          <button
+                            onClick={() => toggleSavedPaper(paper.paperId)}
+                            className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg font-semibold text-sm transition-all hover:shadow-lg ${
+                              savedPapers.has(paper.paperId)
+                                ? 'bg-red-600 hover:bg-red-700 text-white'
+                                : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 hover:bg-red-200'
+                            }`}
+                            title="Save to collection"
+                          >
+                            <span>{savedPapers.has(paper.paperId) ? '❤️' : '🤍'}</span>
+                            {savedPapers.has(paper.paperId) ? 'Saved' : 'Save'}
+                          </button>
+
                           <a
                             href={paper.scholarLink}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 px-3 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded text-xs font-medium hover:bg-blue-100 dark:hover:bg-blue-900/40 transition"
+                            className="inline-flex items-center gap-2 px-4 py-2 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 hover:bg-green-200 rounded-lg font-semibold text-sm transition-all hover:shadow-lg ml-auto"
                           >
-                            📖 Read Paper →
+                            📖 Read Full Paper
+                            <span>→</span>
                           </a>
                         </div>
                       </div>
