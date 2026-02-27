@@ -2,17 +2,22 @@ import { useState, useMemo } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 export default function App() {
+  // Search state
   const [question, setQuestion] = useState('');
   const [status, setStatus] = useState('idle');
+  const [activeTab, setActiveTab] = useState('landscape'); // landscape, proposal, collaborate
+
+  // Results state
   const [papers, setPapers] = useState([]);
   const [trends, setTrends] = useState([]);
-  const [coverage, setCoverage] = useState(null);
   const [gaps, setGaps] = useState([]);
   const [aiSummary, setAiSummary] = useState('');
-  const [gaps, setGaps] = useState([]);
-  const [researchers, setResearchers] = useState({});
   const [grantIntro, setGrantIntro] = useState('');
   const [bigAssumption, setBigAssumption] = useState('');
+  const [blindSpotScore, setBlindSpotScore] = useState(null);
+  const [crossFieldMethods, setCrossFieldMethods] = useState([]);
+  const [latencyMap, setLatencyMap] = useState([]);
+  const [collaborators, setCollaborators] = useState([]);
   const [error, setError] = useState('');
 
   // Filters
@@ -58,16 +63,48 @@ export default function App() {
     }
   };
 
-  const searchPapers = async (query) => {
+  const searchSemanticScholar = async (query) => {
     try {
       const res = await fetch(
-        `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&fields=title,abstract,authors,year,citationCount,paperId&limit=10`
+        `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&fields=title,abstract,authors,year,citationCount,paperId&limit=15`
       );
       const data = await res.json();
       return (data.data || []).filter(p => p.abstract && p.abstract.length > 100);
     } catch {
       return [];
     }
+  };
+
+  const searchOpenAlex = async (query) => {
+    try {
+      const res = await fetch(
+        `https://api.openalex.org/works?filter=title.search:"${encodeURIComponent(query)}"&per_page=20&sort=cited_by_count:desc`
+      );
+      const data = await res.json();
+      return (data.results || []).map(work => ({
+        title: work.title,
+        year: work.publication_year,
+        citationCount: work.cited_by_count || 0,
+        abstract: work.abstract || 'No abstract available',
+        authors: (work.authorships || []).slice(0, 5).map(a => ({ name: a.author?.display_name || 'Unknown' })),
+        paperId: work.id
+      })).filter(p => p.title && p.year);
+    } catch {
+      return [];
+    }
+  };
+
+  const searchPapers = async (query) => {
+    // Multi-strategy search: try Semantic Scholar first, then OpenAlex as fallback
+    const semanticResults = await searchSemanticScholar(query);
+
+    if (semanticResults.length >= 5) {
+      return semanticResults;
+    }
+
+    // If Semantic Scholar returns few results, try OpenAlex
+    const openalexResults = await searchOpenAlex(query);
+    return [...semanticResults, ...openalexResults].slice(0, 20);
   };
 
   const getGoogleScholarLinks = async (query) => {
@@ -177,6 +214,46 @@ export default function App() {
     }
   };
 
+  const findCollaborators = async (gaps, mainTopic) => {
+    // Find researchers actively working on identified gaps
+    try {
+      const collaboratorMap = {};
+
+      for (const gap of gaps.slice(0, 3)) {
+        // Search for recent papers on the gap topic
+        const papersRes = await fetch(
+          `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(gap.research_question)}&fields=authors,year&limit=5`
+        );
+        const papersData = await papersRes.json();
+        const recentPapers = (papersData.data || []).filter(p => p.year >= new Date().getFullYear() - 2);
+
+        // Extract unique authors from recent papers
+        const authors = [];
+        const seenAuthors = new Set();
+        for (const paper of recentPapers) {
+          for (const author of (paper.authors || []).slice(0, 3)) {
+            const authorName = author.name || author.authorId;
+            if (authorName && !seenAuthors.has(authorName)) {
+              seenAuthors.add(authorName);
+              authors.push({
+                name: authorName,
+                paperId: paper.paperId,
+                year: paper.year
+              });
+            }
+          }
+        }
+
+        collaboratorMap[gap.title] = authors.slice(0, 3);
+      }
+
+      return collaboratorMap;
+    } catch (err) {
+      console.error('Error finding collaborators:', err);
+      return {};
+    }
+  };
+
   const generateGrantProposal = async (q, paperList) => {
     if (paperList.length === 0) return '';
 
@@ -201,6 +278,72 @@ export default function App() {
     const data = await res.json();
     if (!res.ok || !data.choices?.[0]) return '';
     return data.choices[0].message.content;
+  };
+
+  const calculateBlindSpotScore = (paperList, gapList) => {
+    if (paperList.length === 0) return 0;
+
+    // Simple, coherent score: ratio of gaps to papers
+    // High score = many unexplored areas relative to what's been studied
+    // Score represents: percentage of research territory that's unexplored
+    const score = Math.min(100, Math.round((gapList.length / Math.max(paperList.length, 1)) * 100));
+    return score;
+  };
+
+  const findCrossFieldMethods = async (q) => {
+    try {
+      // Get adjacent fields via OpenAlex
+      const res = await fetch(
+        `https://api.openalex.org/concepts?filter=display_name.search:"${encodeURIComponent(q)}"&per_page=5`
+      );
+      const data = await res.json();
+
+      if (!data.results || data.results.length === 0) return [];
+
+      // Get papers from adjacent concepts
+      const adjacentMethods = [];
+      for (const concept of data.results.slice(0, 2)) {
+        const methodRes = await fetch(
+          `https://api.openalex.org/works?filter=concepts.id:"${concept.id}"&group_by=concepts&per_page=10`
+        );
+        const methodData = await methodRes.json();
+        adjacentMethods.push(...(methodData.group_by || []).map(m => ({ method: m.key, count: m.count })));
+      }
+
+      return adjacentMethods.sort((a, b) => b.count - a.count).slice(0, 5);
+    } catch {
+      return [];
+    }
+  };
+
+  const generateLatencyMap = async (q, gapList) => {
+    if (gapList.length === 0) return [];
+
+    try {
+      const latencies = [];
+      for (const gap of gapList) {
+        // Estimate gap age by searching when this question was first asked
+        const res = await fetch(
+          `https://api.openalex.org/works?filter=title.search:"${encodeURIComponent(gap.research_question.substring(0, 50))}"&sort=publication_date&per_page=5`
+        );
+        const data = await res.json();
+
+        if (data.results && data.results.length > 0) {
+          const firstMention = new Date(data.results[data.results.length - 1]?.publication_date || new Date()).getFullYear();
+          const ageYears = new Date().getFullYear() - firstMention;
+          latencies.push({
+            title: gap.title,
+            question: gap.research_question,
+            ageYears: Math.max(0, ageYears),
+            novelty: gap.novelty_score
+          });
+        }
+      }
+
+      return latencies.sort((a, b) => b.ageYears - a.ageYears);
+    } catch {
+      return gapList.map((g, i) => ({ title: g.title, question: g.research_question, ageYears: 5 + i, novelty: g.novelty_score }));
+    }
   };
 
   const deduplicateByTitle = (papers) => {
@@ -256,15 +399,19 @@ export default function App() {
       setGaps(gapData.gaps || []);
       setBigAssumption(gapData.biggest_assumption || '');
 
-      // Find researchers for each gap
-      if (gapData.gaps) {
-        const researcherMap = {};
-        for (const gap of gapData.gaps.slice(0, 2)) {
-          const researchers = await findResearchers(gap.research_question);
-          researcherMap[gap.title] = researchers;
-        }
-        setResearchers(researcherMap);
-      }
+      // Calculate advanced metrics
+      const score = calculateBlindSpotScore(mergedPapers, gapData.gaps || []);
+      setBlindSpotScore(score);
+
+      const methods = await findCrossFieldMethods(question);
+      setCrossFieldMethods(methods);
+
+      const latency = await generateLatencyMap(question, gapData.gaps || []);
+      setLatencyMap(latency);
+
+      // Find collaborators actively working on gaps
+      const collabs = await findCollaborators(gapData.gaps || [], question);
+      setCollaborators(collabs);
 
       setStatus('done');
     } catch (err) {
@@ -305,42 +452,80 @@ export default function App() {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* Header */}
       <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 py-6">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">GoogleScholar AI</h1>
-          <p className="text-sm text-gray-600 dark:text-gray-400">AI-powered research guide powered by Google Scholar + Semantic Scholar</p>
+        <div className="max-w-7xl mx-auto px-4">
+          <div className="py-6 mb-4">
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">📚 Research Navigator</h1>
+            <p className="text-sm text-gray-600 dark:text-gray-400">Find gaps, build proposals, find collaborators</p>
+          </div>
+
+          {/* Search */}
+          <form onSubmit={handleSubmit} className="mb-6">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                placeholder="Search research topic..."
+                className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-lg"
+                disabled={status !== 'idle' && status !== 'done' && status !== 'error'}
+              />
+              <button
+                type="submit"
+                disabled={!question.trim() || (status !== 'idle' && status !== 'done' && status !== 'error')}
+                className="px-8 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-semibold"
+              >
+                {status === 'done' ? '🔄 Search' : 'Search'}
+              </button>
+            </div>
+          </form>
+
+          {/* Tabs */}
+          {status === 'done' && (
+            <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700">
+              <button
+                onClick={() => setActiveTab('landscape')}
+                className={`px-4 py-3 font-semibold border-b-2 transition ${
+                  activeTab === 'landscape'
+                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-300'
+                }`}
+              >
+                🗺️ Landscape
+              </button>
+              <button
+                onClick={() => setActiveTab('proposal')}
+                className={`px-4 py-3 font-semibold border-b-2 transition ${
+                  activeTab === 'proposal'
+                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-300'
+                }`}
+              >
+                📝 Proposal
+              </button>
+              <button
+                onClick={() => setActiveTab('collaborate')}
+                className={`px-4 py-3 font-semibold border-b-2 transition ${
+                  activeTab === 'collaborate'
+                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-300'
+                }`}
+              >
+                👥 Collaborate
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* Search */}
-        <form onSubmit={handleSubmit} className="mb-8">
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              placeholder="Search research topic..."
-              className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-lg"
-              disabled={status !== 'idle' && status !== 'done' && status !== 'error'}
-            />
-            <button
-              type="submit"
-              disabled={!question.trim() || (status !== 'idle' && status !== 'done' && status !== 'error')}
-              className="px-8 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-semibold"
-            >
-              {status === 'done' ? '🔄 Search' : 'Search'}
-            </button>
-          </div>
-        </form>
-
         {/* Status */}
-        {status !== 'idle' && status !== 'error' && (
+        {status !== 'idle' && status !== 'error' && status !== 'done' && (
           <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200 rounded-lg animate-pulse">
             {status === 'extracting' && '🔍 Extracting search terms...'}
             {status === 'pulling' && '📈 Pulling research trends...'}
-            {status === 'searching' && '🔗 Searching Google Scholar...'}
+            {status === 'searching' && '🔗 Searching papers across sources...'}
             {status === 'merging' && '🧩 Merging results...'}
-            {status === 'analyzing' && '🤖 AI analysis...'}
+            {status === 'analyzing' && '🤖 AI analysis & finding collaborators...'}
           </div>
         )}
 
@@ -352,179 +537,300 @@ export default function App() {
 
         {status === 'done' && (
           <>
-            {/* Trends */}
-            {trends.length > 3 && (
-              <div className="mb-8 p-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Publication Trend</h2>
-                <ResponsiveContainer width="100%" height={200}>
-                  <LineChart data={trends}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="year" />
-                    <YAxis />
-                    <Tooltip />
-                    <Line type="monotone" dataKey="count" stroke="#3b82f6" strokeWidth={2} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-
-            {/* AI Summary */}
-            {aiSummary && (
-              <div className="mb-8 p-6 bg-gradient-to-br from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 rounded-lg border border-purple-200 dark:border-purple-700">
-                <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-3">🤖 AI Research Guide</h2>
-                <p className="text-gray-700 dark:text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">{aiSummary}</p>
-              </div>
-            )}
-
-            {/* Controls */}
-            <div className="mb-6 p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Year Range</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="number"
-                      min="1900"
-                      max="2025"
-                      value={yearFilter[0]}
-                      onChange={(e) => setYearFilter([Math.max(1900, parseInt(e.target.value)), yearFilter[1]])}
-                      className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                    />
-                    <input
-                      type="number"
-                      min="1900"
-                      max="2025"
-                      value={yearFilter[1]}
-                      onChange={(e) => setYearFilter([yearFilter[0], Math.min(2025, parseInt(e.target.value))])}
-                      className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                    />
+            {/* LANDSCAPE TAB */}
+            {activeTab === 'landscape' && (
+              <div className="space-y-8">
+                {/* Trends */}
+                {trends.length > 3 && (
+                  <div className="p-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                    <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Publication Trend</h2>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <LineChart data={trends}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="year" />
+                        <YAxis />
+                        <Tooltip />
+                        <Line type="monotone" dataKey="count" stroke="#3b82f6" strokeWidth={2} />
+                      </LineChart>
+                    </ResponsiveContainer>
                   </div>
-                </div>
+                )}
 
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Min Citations: {citationFilter}</label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={citationFilter}
-                    onChange={(e) => setCitationFilter(parseInt(e.target.value))}
-                    className="w-full"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Sort By</label>
-                  <select
-                    value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value)}
-                    className="w-full px-3 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                  >
-                    <option value="citations">Most Cited</option>
-                    <option value="year">Newest</option>
-                  </select>
-                </div>
-
-                <div className="flex items-end">
-                  <button
-                    onClick={handleExportCSV}
-                    className="w-full px-4 py-1 bg-green-600 hover:bg-green-700 text-white rounded font-medium text-sm"
-                  >
-                    📥 Export CSV
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Papers */}
-            <div>
-              <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
-                Papers ({filteredAndSortedPapers.length})
-              </h2>
-              <div className="space-y-3">
-                {filteredAndSortedPapers.map((paper, idx) => (
-                  <div key={idx} className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:shadow-lg transition">
-                    <div className="flex justify-between items-start gap-4 mb-2">
-                      <a
-                        href={paper.scholarLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex-1 font-semibold text-blue-600 dark:text-blue-400 hover:underline"
-                      >
-                        {paper.title} →
-                      </a>
-                      <span className="px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 text-sm rounded-full whitespace-nowrap">
-                        {paper.year}
-                      </span>
-                    </div>
-
-                    <div className="flex gap-4 mb-3 text-sm text-gray-600 dark:text-gray-400">
-                      <span>📊 {paper.citationCount || 0} citations</span>
-                      {paper.authors && paper.authors.length > 0 && (
-                        <span>👤 {paper.authors.slice(0, 2).map(a => a.name).join(', ')}{paper.authors.length > 2 ? '...' : ''}</span>
-                      )}
-                    </div>
-
-                    <p className="text-sm text-gray-700 dark:text-gray-300 line-clamp-2">
-                      {paper.scholarSnippet || paper.abstract?.substring(0, 200)}
-                    </p>
+                {/* AI Summary */}
+                {aiSummary && (
+                  <div className="p-6 bg-gradient-to-br from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 rounded-lg border border-purple-200 dark:border-purple-700">
+                    <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-3">🤖 AI Research Guide</h2>
+                    <p className="text-gray-700 dark:text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">{aiSummary}</p>
                   </div>
-                ))}
-              </div>
+                )}
 
-              {filteredAndSortedPapers.length === 0 && papers.length > 0 && (
-                <div className="p-6 text-center text-gray-500 dark:text-gray-400">
-                  No papers match your filters. Try adjusting the criteria.
-                </div>
-              )}
-            </div>
-
-            {/* Gaps & Grant */}
-            {gaps.length > 0 && (
-              <div className="mt-12 pt-8 border-t border-gray-300 dark:border-gray-700">
-                <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-6">Research Gaps</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-                  {gaps.map((gap, idx) => (
-                    <div key={idx} className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                      <h3 className="font-bold text-gray-900 dark:text-white mb-2">{gap.title}</h3>
-                      <p className="text-sm italic text-gray-700 dark:text-gray-300 mb-2">{gap.research_question}</p>
-                      <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">{gap.why_missing}</p>
-                      <div className="flex gap-2">
-                        <span className="px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-200 text-xs rounded">Novelty: {gap.novelty_score}</span>
-                        <span className="px-2 py-1 bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-200 text-xs rounded">{gap.difficulty}</span>
+                {/* Advanced Metrics */}
+                {(blindSpotScore !== null || crossFieldMethods.length > 0 || latencyMap.length > 0) && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Blind Spot Score */}
+                    {blindSpotScore !== null && (
+                      <div className="p-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 text-center">
+                        <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-gradient-to-br from-red-100 to-orange-100 dark:from-red-900/30 dark:to-orange-900/30 mb-3">
+                          <span className="text-3xl font-bold text-red-600 dark:text-red-400">{blindSpotScore}</span>
+                        </div>
+                        <h3 className="font-bold text-gray-900 dark:text-white mb-1">Blind Spot Score</h3>
+                        <p className="text-xs text-gray-600 dark:text-gray-400">% Unexplored Territory</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-500 mt-2">
+                          {blindSpotScore > 50 ? 'High unexplored territory' : blindSpotScore > 20 ? 'Moderate gaps' : 'Well-researched field'}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-500 mt-1 italic">({gaps.length} gaps vs {papers.length} papers)</p>
                       </div>
-                      {researchers[gap.title] && researchers[gap.title].length > 0 && (
-                        <div className="mt-3 pt-3 border-t border-gray-300 dark:border-gray-600 text-xs">
-                          <p className="font-semibold text-gray-700 dark:text-gray-300 mb-1">Researchers:</p>
-                          {researchers[gap.title].slice(0, 2).map((r, i) => (
-                            <p key={i} className="text-gray-600 dark:text-gray-400">{r.name}</p>
+                    )}
+
+                    {/* Cross-Field Methods */}
+                    {crossFieldMethods.length > 0 && (
+                      <div className="p-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                        <h3 className="font-bold text-gray-900 dark:text-white mb-3">🔄 Cross-Field Methods</h3>
+                        <div className="space-y-2 text-sm">
+                          {crossFieldMethods.slice(0, 3).map((m, i) => (
+                            <div key={i} className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded">
+                              <p className="text-gray-700 dark:text-gray-300 font-medium line-clamp-1">{m.method}</p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">Used in {m.count} adjacent papers</p>
+                            </div>
                           ))}
                         </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-500 mt-2">Methods to apply from adjacent fields</p>
+                      </div>
+                    )}
 
-                {/* Grant Generator */}
-                <div className="p-6 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-lg border border-green-200 dark:border-green-700">
-                  <button
-                    onClick={() => grantIntro ? setGrantIntro('') : generateGrantProposal(question, papers).then(setGrantIntro)}
-                    className="w-full px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold mb-4"
-                  >
-                    {grantIntro ? '✕ Hide Grant Intro' : '📝 Generate NSF Grant Intro'}
-                  </button>
-                  {grantIntro && (
-                    <div className="p-4 bg-white dark:bg-gray-800 rounded text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
-                      {grantIntro}
+                    {/* Latency Map */}
+                    {latencyMap.length > 0 && (
+                      <div className="p-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                        <h3 className="font-bold text-gray-900 dark:text-white mb-3">⏱️ Gap Age</h3>
+                        <div className="space-y-2 text-sm">
+                          {latencyMap.slice(0, 3).map((g, i) => (
+                            <div key={i} className={`p-2 rounded ${g.ageYears > 10 ? 'bg-red-50 dark:bg-red-900/20' : 'bg-yellow-50 dark:bg-yellow-900/20'}`}>
+                              <p className="text-gray-700 dark:text-gray-300 font-medium line-clamp-1 text-xs">{g.title}</p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400">{g.ageYears}+ years old</p>
+                            </div>
+                          ))}
+                        </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-500 mt-2">Red = long-standing gaps</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Gaps */}
+                {gaps.length > 0 && (
+                  <div className="border-t border-gray-300 dark:border-gray-700 pt-8">
+                    <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-6">📊 Research Gaps</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {gaps.map((gap, idx) => (
+                        <div key={idx} className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                          <h3 className="font-bold text-gray-900 dark:text-white mb-2">{gap.title}</h3>
+                          <p className="text-sm italic text-gray-700 dark:text-gray-300 mb-2">{gap.research_question}</p>
+                          <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">{gap.why_missing}</p>
+                          <div className="flex gap-2">
+                            <span className="px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-200 text-xs rounded">Novelty: {gap.novelty_score}</span>
+                            <span className="px-2 py-1 bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-200 text-xs rounded">{gap.difficulty}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Papers Controls & List */}
+                <div className="border-t border-gray-300 dark:border-gray-700 pt-8">
+                  <div className="mb-6 p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Year Range</label>
+                        <div className="flex gap-2">
+                          <input
+                            type="number"
+                            min="1900"
+                            max="2025"
+                            value={yearFilter[0]}
+                            onChange={(e) => setYearFilter([Math.max(1900, parseInt(e.target.value)), yearFilter[1]])}
+                            className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                          />
+                          <input
+                            type="number"
+                            min="1900"
+                            max="2025"
+                            value={yearFilter[1]}
+                            onChange={(e) => setYearFilter([yearFilter[0], Math.min(2025, parseInt(e.target.value))])}
+                            className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Min Citations: {citationFilter}</label>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={citationFilter}
+                          onChange={(e) => setCitationFilter(parseInt(e.target.value))}
+                          className="w-full"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Sort By</label>
+                        <select
+                          value={sortBy}
+                          onChange={(e) => setSortBy(e.target.value)}
+                          className="w-full px-3 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                        >
+                          <option value="citations">Most Cited</option>
+                          <option value="year">Newest</option>
+                        </select>
+                      </div>
+
+                      <div className="flex items-end">
+                        <button
+                          onClick={handleExportCSV}
+                          className="w-full px-4 py-1 bg-green-600 hover:bg-green-700 text-white rounded font-medium text-sm"
+                        >
+                          📥 Export CSV
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
+                    📑 Papers ({filteredAndSortedPapers.length})
+                  </h2>
+                  <div className="space-y-3">
+                    {filteredAndSortedPapers.map((paper, idx) => (
+                      <div key={idx} className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:shadow-lg transition">
+                        <div className="flex justify-between items-start gap-4 mb-2">
+                          <a
+                            href={paper.scholarLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex-1 font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+                          >
+                            {paper.title} →
+                          </a>
+                          <span className="px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 text-sm rounded-full whitespace-nowrap">
+                            {paper.year}
+                          </span>
+                        </div>
+
+                        <div className="flex gap-4 mb-3 text-sm text-gray-600 dark:text-gray-400">
+                          <span>📊 {paper.citationCount || 0} citations</span>
+                          {paper.authors && paper.authors.length > 0 && (
+                            <span>👤 {paper.authors.slice(0, 2).map(a => a.name).join(', ')}{paper.authors.length > 2 ? '...' : ''}</span>
+                          )}
+                        </div>
+
+                        <p className="text-sm text-gray-700 dark:text-gray-300 line-clamp-2">
+                          {paper.scholarSnippet || paper.abstract?.substring(0, 200)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {filteredAndSortedPapers.length === 0 && papers.length > 0 && (
+                    <div className="p-6 text-center text-gray-500 dark:text-gray-400">
+                      No papers match your filters. Try adjusting the criteria.
                     </div>
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* PROPOSAL TAB */}
+            {activeTab === 'proposal' && (
+              <div className="space-y-8">
+                {/* Grant Generator */}
+                {gaps.length > 0 && (
+                  <div className="p-6 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-lg border border-green-200 dark:border-green-700">
+                    <button
+                      onClick={() => grantIntro ? setGrantIntro('') : generateGrantProposal(question, papers).then(setGrantIntro)}
+                      className="w-full px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold mb-4"
+                    >
+                      {grantIntro ? '✕ Hide Grant Intro' : '📝 Generate NSF Grant Intro'}
+                    </button>
+                    {grantIntro && (
+                      <div className="p-4 bg-white dark:bg-gray-800 rounded text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
+                        {grantIntro}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Big Assumption */}
                 {bigAssumption && (
-                  <div className="mt-6 p-6 bg-gradient-to-r from-orange-50 to-red-50 dark:from-orange-900/20 dark:to-red-900/20 rounded-lg border-2 border-orange-300 dark:border-orange-700">
+                  <div className="p-6 bg-gradient-to-r from-orange-50 to-red-50 dark:from-orange-900/20 dark:to-red-900/20 rounded-lg border-2 border-orange-300 dark:border-orange-700">
                     <p className="text-sm font-bold text-orange-600 dark:text-orange-400 uppercase mb-2">🎯 The Field's Biggest Untested Assumption</p>
                     <p className="text-lg font-bold text-gray-900 dark:text-white italic">"{bigAssumption}"</p>
+                  </div>
+                )}
+
+                {/* Identified Gaps for Proposal */}
+                {gaps.length > 0 && (
+                  <div className="border-t border-gray-300 dark:border-gray-700 pt-8">
+                    <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-6">📋 Research Gaps (from Landscape)</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {gaps.map((gap, idx) => (
+                        <div key={idx} className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                          <h3 className="font-bold text-gray-900 dark:text-white mb-2">{gap.title}</h3>
+                          <p className="text-sm italic text-gray-700 dark:text-gray-300 mb-2">{gap.research_question}</p>
+                          <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">{gap.why_missing}</p>
+                          <div className="flex gap-2">
+                            <span className="px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-200 text-xs rounded">Novelty: {gap.novelty_score}</span>
+                            <span className="px-2 py-1 bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-200 text-xs rounded">{gap.difficulty}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* COLLABORATE TAB */}
+            {activeTab === 'collaborate' && (
+              <div className="space-y-8">
+                <div className="p-6 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700">
+                  <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-2">👥 Find Collaborators</h2>
+                  <p className="text-sm text-gray-700 dark:text-gray-300">Researchers actively working on the identified gaps in your field. These researchers may be seeking collaborators.</p>
+                </div>
+
+                {gaps.length > 0 ? (
+                  <div className="space-y-6">
+                    {gaps.map((gap, gapIdx) => (
+                      <div key={gapIdx} className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                        <div className="p-4 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 border-b border-gray-200 dark:border-gray-700">
+                          <h3 className="font-bold text-gray-900 dark:text-white">{gap.title}</h3>
+                          <p className="text-sm text-gray-700 dark:text-gray-300 italic mt-1">{gap.research_question}</p>
+                        </div>
+
+                        <div className="p-4">
+                          {collaborators[gap.title] && collaborators[gap.title].length > 0 ? (
+                            <div className="space-y-3">
+                              {collaborators[gap.title].map((collab, idx) => (
+                                <div key={idx} className="p-3 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 hover:shadow transition">
+                                  <p className="font-semibold text-gray-900 dark:text-white">👤 {collab.name}</p>
+                                  <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                                    Recent publication {collab.year} • Working on related research
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="p-4 text-center text-gray-500 dark:text-gray-400 text-sm">
+                              No recent collaborators found for this gap. Try searching for related research on Google Scholar or ResearchGate.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+                    <p>Run a search first to identify gaps and find collaborators.</p>
                   </div>
                 )}
               </div>
