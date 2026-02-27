@@ -1,0 +1,537 @@
+import { useState, useMemo } from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+
+export default function App() {
+  const [question, setQuestion] = useState('');
+  const [status, setStatus] = useState('idle');
+  const [papers, setPapers] = useState([]);
+  const [trends, setTrends] = useState([]);
+  const [coverage, setCoverage] = useState(null);
+  const [gaps, setGaps] = useState([]);
+  const [aiSummary, setAiSummary] = useState('');
+  const [gaps, setGaps] = useState([]);
+  const [researchers, setResearchers] = useState({});
+  const [grantIntro, setGrantIntro] = useState('');
+  const [bigAssumption, setBigAssumption] = useState('');
+  const [error, setError] = useState('');
+
+  // Filters
+  const [yearFilter, setYearFilter] = useState([2015, 2025]);
+  const [citationFilter, setCitationFilter] = useState(0);
+  const [sortBy, setSortBy] = useState('citations'); // citations, year, relevance
+
+  const extractTerms = async (q) => {
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${import.meta.env.VITE_GROQ_KEY}`,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        max_tokens: 200,
+        messages: [{
+          role: 'user',
+          content: `Extract 3 short academic search queries from: "${q}". Return ONLY JSON array of 3 strings.`
+        }]
+      })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.choices?.[0]) throw new Error('Failed to extract terms');
+    let content = data.choices[0].message.content.trim();
+    content = content.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+    return JSON.parse(content);
+  };
+
+  const getTrends = async (topic) => {
+    try {
+      const res = await fetch(
+        `https://api.openalex.org/works?filter=title.search:"${encodeURIComponent(topic)}"&group_by=publication_year&per_page=200`
+      );
+      const data = await res.json();
+      return (data.group_by || [])
+        .map(item => ({ year: parseInt(item.key), count: item.count }))
+        .sort((a, b) => a.year - b.year)
+        .slice(-15);
+    } catch {
+      return [];
+    }
+  };
+
+  const searchPapers = async (query) => {
+    try {
+      const res = await fetch(
+        `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&fields=title,abstract,authors,year,citationCount,paperId&limit=10`
+      );
+      const data = await res.json();
+      return (data.data || []).filter(p => p.abstract && p.abstract.length > 100);
+    } catch {
+      return [];
+    }
+  };
+
+  const getGoogleScholarLinks = async (query) => {
+    try {
+      const res = await fetch('https://google.serper.dev/scholar', {
+        method: 'POST',
+        headers: {
+          'X-API-KEY': import.meta.env.VITE_SERPER_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ q: query, num: 15 })
+      });
+      const data = await res.json();
+      return data.organic || [];
+    } catch {
+      return [];
+    }
+  };
+
+  const mergePapersWithLinks = (semanticPapers, scholarResults) => {
+    return semanticPapers.map(paper => {
+      // Find matching Google Scholar result by title similarity
+      const scholarMatch = scholarResults.find(result =>
+        result.title?.toLowerCase().includes(paper.title.substring(0, 30).toLowerCase()) ||
+        paper.title.toLowerCase().includes(result.title?.substring(0, 30).toLowerCase())
+      );
+
+      return {
+        ...paper,
+        scholarLink: scholarMatch?.link || `https://scholar.google.com/scholar?q=${encodeURIComponent(paper.title)}`,
+        scholarSnippet: scholarMatch?.snippet || paper.abstract.substring(0, 150)
+      };
+    });
+  };
+
+  const generateAISummary = async (q, paperList) => {
+    if (paperList.length === 0) return '';
+
+    const summaryText = paperList.slice(0, 8).map((p, i) =>
+      `${i+1}. "${p.title}" (${p.year}, ${p.citationCount} citations)`
+    ).join('\n');
+
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${import.meta.env.VITE_GROQ_KEY}`,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        max_tokens: 800,
+        messages: [{
+          role: 'user',
+          content: `Research topic: "${q}"\n\nKey papers:\n${summaryText}\n\nWrite a 3-paragraph research guide that: 1) Explains the current state of research, 2) Identifies major research themes, 3) Points out critical gaps. Be concise and actionable for researchers.`
+        }]
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.choices?.[0]) return '';
+    return data.choices[0].message.content;
+  };
+
+  const analyzeGaps = async (q, paperList) => {
+    if (paperList.length === 0) return { gaps: [], biggest_assumption: '' };
+
+    const paperText = paperList.slice(0, 10).map((p, i) =>
+      `[${i}] "${p.title}" (${p.year})`
+    ).join('\n');
+
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${import.meta.env.VITE_GROQ_KEY}`,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        max_tokens: 1500,
+        messages: [{
+          role: 'user',
+          content: `Research field: "${q}"\n\nPapers studied:\n${paperText}\n\nIdentify 3 major research gaps. Return ONLY JSON:\n{"gaps": [{"title": "gap name", "research_question": "specific question", "why_missing": "why not studied", "difficulty": "low|medium|high", "novelty_score": 85}], "biggest_assumption": "what the field assumes without testing"}`
+        }]
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.choices?.[0]) return { gaps: [], biggest_assumption: '' };
+    let content = data.choices[0].message.content.trim();
+    content = content.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+    try {
+      return JSON.parse(content);
+    } catch {
+      return { gaps: [], biggest_assumption: '' };
+    }
+  };
+
+  const findResearchers = async (gapQuestion) => {
+    try {
+      const res = await fetch(
+        `https://api.semanticscholar.org/graph/v1/author/search?query=${encodeURIComponent(gapQuestion.substring(0, 50))}&fields=name,affiliations,paperCount,citationCount&limit=3`
+      );
+      const data = await res.json();
+      return data.data || [];
+    } catch {
+      return [];
+    }
+  };
+
+  const generateGrantProposal = async (q, paperList) => {
+    if (paperList.length === 0) return '';
+
+    const paperSummary = paperList.slice(0, 6).map(p => `- ${p.title}`).join('\n');
+
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${import.meta.env.VITE_GROQ_KEY}`,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        max_tokens: 1000,
+        messages: [{
+          role: 'user',
+          content: `Write an NSF-style grant proposal introduction (3 paragraphs) for research in: "${q}"\n\nKey literature:\n${paperSummary}\n\nMake it compelling, establish the field's importance, and justify the need for new research.`
+        }]
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.choices?.[0]) return '';
+    return data.choices[0].message.content;
+  };
+
+  const deduplicateByTitle = (papers) => {
+    const seen = new Set();
+    return papers.filter(p => {
+      if (seen.has(p.title)) return false;
+      seen.add(p.title);
+      return true;
+    });
+  };
+
+  const filteredAndSortedPapers = useMemo(() => {
+    let filtered = papers.filter(p =>
+      p.year >= yearFilter[0] &&
+      p.year <= yearFilter[1] &&
+      (p.citationCount || 0) >= citationFilter
+    );
+
+    return filtered.sort((a, b) => {
+      if (sortBy === 'citations') return (b.citationCount || 0) - (a.citationCount || 0);
+      if (sortBy === 'year') return b.year - a.year;
+      return 0;
+    });
+  }, [papers, yearFilter, citationFilter, sortBy]);
+
+  const runPipeline = async () => {
+    try {
+      setError('');
+      setStatus('extracting');
+      const terms = await extractTerms(question);
+
+      setStatus('pulling');
+      const [trendData, ...paperResults] = await Promise.all([
+        getTrends(question),
+        ...terms.map(searchPapers)
+      ]);
+      setTrends(trendData);
+
+      setStatus('searching');
+      const scholarResults = await getGoogleScholarLinks(question);
+
+      setStatus('merging');
+      const allPapers = deduplicateByTitle([...paperResults.flat()]);
+      const mergedPapers = mergePapersWithLinks(allPapers, scholarResults).slice(0, 20);
+      setPapers(mergedPapers);
+
+      setStatus('analyzing');
+      const [summary, gapData] = await Promise.all([
+        generateAISummary(question, mergedPapers),
+        analyzeGaps(question, mergedPapers)
+      ]);
+      setAiSummary(summary);
+      setGaps(gapData.gaps || []);
+      setBigAssumption(gapData.biggest_assumption || '');
+
+      // Find researchers for each gap
+      if (gapData.gaps) {
+        const researcherMap = {};
+        for (const gap of gapData.gaps.slice(0, 2)) {
+          const researchers = await findResearchers(gap.research_question);
+          researcherMap[gap.title] = researchers;
+        }
+        setResearchers(researcherMap);
+      }
+
+      setStatus('done');
+    } catch (err) {
+      console.error('Pipeline error:', err);
+      setError(err.message || 'Error running analysis');
+      setStatus('error');
+    }
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (question.trim()) runPipeline();
+  };
+
+  const handleExportCSV = () => {
+    const csv = [
+      ['Title', 'Year', 'Citations', 'Authors', 'Link'].join(','),
+      ...filteredAndSortedPapers.map(p =>
+        [
+          `"${p.title}"`,
+          p.year,
+          p.citationCount || 0,
+          `"${(p.authors || []).slice(0, 3).map(a => a.name).join('; ')}"`,
+          p.scholarLink
+        ].join(',')
+      )
+    ].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `research-${Date.now()}.csv`;
+    a.click();
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      {/* Header */}
+      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 py-6">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">GoogleScholar AI</h1>
+          <p className="text-sm text-gray-600 dark:text-gray-400">AI-powered research guide powered by Google Scholar + Semantic Scholar</p>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-4 py-8">
+        {/* Search */}
+        <form onSubmit={handleSubmit} className="mb-8">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              placeholder="Search research topic..."
+              className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-lg"
+              disabled={status !== 'idle' && status !== 'done' && status !== 'error'}
+            />
+            <button
+              type="submit"
+              disabled={!question.trim() || (status !== 'idle' && status !== 'done' && status !== 'error')}
+              className="px-8 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-semibold"
+            >
+              {status === 'done' ? '🔄 Search' : 'Search'}
+            </button>
+          </div>
+        </form>
+
+        {/* Status */}
+        {status !== 'idle' && status !== 'error' && (
+          <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200 rounded-lg animate-pulse">
+            {status === 'extracting' && '🔍 Extracting search terms...'}
+            {status === 'pulling' && '📈 Pulling research trends...'}
+            {status === 'searching' && '🔗 Searching Google Scholar...'}
+            {status === 'merging' && '🧩 Merging results...'}
+            {status === 'analyzing' && '🤖 AI analysis...'}
+          </div>
+        )}
+
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200 rounded-lg">
+            ⚠️ {error}
+          </div>
+        )}
+
+        {status === 'done' && (
+          <>
+            {/* Trends */}
+            {trends.length > 3 && (
+              <div className="mb-8 p-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Publication Trend</h2>
+                <ResponsiveContainer width="100%" height={200}>
+                  <LineChart data={trends}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="year" />
+                    <YAxis />
+                    <Tooltip />
+                    <Line type="monotone" dataKey="count" stroke="#3b82f6" strokeWidth={2} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* AI Summary */}
+            {aiSummary && (
+              <div className="mb-8 p-6 bg-gradient-to-br from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 rounded-lg border border-purple-200 dark:border-purple-700">
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-3">🤖 AI Research Guide</h2>
+                <p className="text-gray-700 dark:text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">{aiSummary}</p>
+              </div>
+            )}
+
+            {/* Controls */}
+            <div className="mb-6 p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Year Range</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      min="1900"
+                      max="2025"
+                      value={yearFilter[0]}
+                      onChange={(e) => setYearFilter([Math.max(1900, parseInt(e.target.value)), yearFilter[1]])}
+                      className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                    />
+                    <input
+                      type="number"
+                      min="1900"
+                      max="2025"
+                      value={yearFilter[1]}
+                      onChange={(e) => setYearFilter([yearFilter[0], Math.min(2025, parseInt(e.target.value))])}
+                      className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Min Citations: {citationFilter}</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={citationFilter}
+                    onChange={(e) => setCitationFilter(parseInt(e.target.value))}
+                    className="w-full"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Sort By</label>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                    className="w-full px-3 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                  >
+                    <option value="citations">Most Cited</option>
+                    <option value="year">Newest</option>
+                  </select>
+                </div>
+
+                <div className="flex items-end">
+                  <button
+                    onClick={handleExportCSV}
+                    className="w-full px-4 py-1 bg-green-600 hover:bg-green-700 text-white rounded font-medium text-sm"
+                  >
+                    📥 Export CSV
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Papers */}
+            <div>
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
+                Papers ({filteredAndSortedPapers.length})
+              </h2>
+              <div className="space-y-3">
+                {filteredAndSortedPapers.map((paper, idx) => (
+                  <div key={idx} className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:shadow-lg transition">
+                    <div className="flex justify-between items-start gap-4 mb-2">
+                      <a
+                        href={paper.scholarLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+                      >
+                        {paper.title} →
+                      </a>
+                      <span className="px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 text-sm rounded-full whitespace-nowrap">
+                        {paper.year}
+                      </span>
+                    </div>
+
+                    <div className="flex gap-4 mb-3 text-sm text-gray-600 dark:text-gray-400">
+                      <span>📊 {paper.citationCount || 0} citations</span>
+                      {paper.authors && paper.authors.length > 0 && (
+                        <span>👤 {paper.authors.slice(0, 2).map(a => a.name).join(', ')}{paper.authors.length > 2 ? '...' : ''}</span>
+                      )}
+                    </div>
+
+                    <p className="text-sm text-gray-700 dark:text-gray-300 line-clamp-2">
+                      {paper.scholarSnippet || paper.abstract?.substring(0, 200)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              {filteredAndSortedPapers.length === 0 && papers.length > 0 && (
+                <div className="p-6 text-center text-gray-500 dark:text-gray-400">
+                  No papers match your filters. Try adjusting the criteria.
+                </div>
+              )}
+            </div>
+
+            {/* Gaps & Grant */}
+            {gaps.length > 0 && (
+              <div className="mt-12 pt-8 border-t border-gray-300 dark:border-gray-700">
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-6">Research Gaps</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                  {gaps.map((gap, idx) => (
+                    <div key={idx} className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                      <h3 className="font-bold text-gray-900 dark:text-white mb-2">{gap.title}</h3>
+                      <p className="text-sm italic text-gray-700 dark:text-gray-300 mb-2">{gap.research_question}</p>
+                      <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">{gap.why_missing}</p>
+                      <div className="flex gap-2">
+                        <span className="px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-200 text-xs rounded">Novelty: {gap.novelty_score}</span>
+                        <span className="px-2 py-1 bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-200 text-xs rounded">{gap.difficulty}</span>
+                      </div>
+                      {researchers[gap.title] && researchers[gap.title].length > 0 && (
+                        <div className="mt-3 pt-3 border-t border-gray-300 dark:border-gray-600 text-xs">
+                          <p className="font-semibold text-gray-700 dark:text-gray-300 mb-1">Researchers:</p>
+                          {researchers[gap.title].slice(0, 2).map((r, i) => (
+                            <p key={i} className="text-gray-600 dark:text-gray-400">{r.name}</p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Grant Generator */}
+                <div className="p-6 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-lg border border-green-200 dark:border-green-700">
+                  <button
+                    onClick={() => grantIntro ? setGrantIntro('') : generateGrantProposal(question, papers).then(setGrantIntro)}
+                    className="w-full px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold mb-4"
+                  >
+                    {grantIntro ? '✕ Hide Grant Intro' : '📝 Generate NSF Grant Intro'}
+                  </button>
+                  {grantIntro && (
+                    <div className="p-4 bg-white dark:bg-gray-800 rounded text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
+                      {grantIntro}
+                    </div>
+                  )}
+                </div>
+
+                {/* Big Assumption */}
+                {bigAssumption && (
+                  <div className="mt-6 p-6 bg-gradient-to-r from-orange-50 to-red-50 dark:from-orange-900/20 dark:to-red-900/20 rounded-lg border-2 border-orange-300 dark:border-orange-700">
+                    <p className="text-sm font-bold text-orange-600 dark:text-orange-400 uppercase mb-2">🎯 The Field's Biggest Untested Assumption</p>
+                    <p className="text-lg font-bold text-gray-900 dark:text-white italic">"{bigAssumption}"</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
