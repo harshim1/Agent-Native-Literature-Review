@@ -674,47 +674,65 @@ export default function App() {
               <div className="space-y-8">
                 {/* Comparison View */}
                 {comparisonPapers.size > 0 && (
-                  <div className="p-6 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-lg border border-purple-200 dark:border-purple-700">
-                    <div className="flex justify-between items-center mb-4">
-                      <h2 className="text-lg font-bold text-gray-900 dark:text-white">⊙ Comparing {comparisonPapers.size} Paper{comparisonPapers.size !== 1 ? 's' : ''}</h2>
-                      <button
-                        onClick={() => setShowComparison(!showComparison)}
-                        className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded font-medium text-sm transition"
-                      >
-                        {showComparison ? '▼ Hide' : '▶ Show'} Comparison
-                      </button>
+                  <div className="bg-white dark:bg-gray-800 rounded-xl border-2 border-purple-200 dark:border-purple-700 overflow-hidden hover:shadow-xl transition-shadow">
+                    <div className="p-6 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 border-b border-purple-200 dark:border-purple-700">
+                      <div className="flex justify-between items-center">
+                        <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
+                          <span className="text-2xl">⊙</span>
+                          Comparing {comparisonPapers.size} Paper{comparisonPapers.size !== 1 ? 's' : ''}
+                        </h2>
+                        <button
+                          onClick={() => setShowComparison(!showComparison)}
+                          className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-semibold text-sm transition"
+                        >
+                          {showComparison ? '▼ Hide' : '▶ Show'} Comparison
+                        </button>
+                      </div>
                     </div>
 
                     {showComparison && (
-                      <div className="grid grid-cols-1 gap-4">
+                      <div className="p-6 space-y-4">
                         {Array.from(comparisonPapers).map((paperId, idx) => {
                           const paper = papers.find(p => p.paperId === paperId);
                           if (!paper) return null;
                           return (
-                            <div key={idx} className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-purple-200 dark:border-purple-700">
-                              <div className="flex justify-between items-start gap-3 mb-2">
-                                <h3 className="font-bold text-gray-900 dark:text-white">{paper.title}</h3>
+                            <div key={idx} className="p-5 bg-gradient-to-br from-white to-gray-50 dark:from-gray-700 dark:to-gray-800 rounded-lg border-2 border-purple-100 dark:border-purple-900/30 hover:border-purple-400 dark:hover:border-purple-600 transition">
+                              <div className="flex justify-between items-start gap-3 mb-4">
+                                <h3 className="text-lg font-bold text-gray-900 dark:text-white flex-1">{paper.title}</h3>
                                 <button
                                   onClick={() => toggleComparisonPaper(paperId)}
-                                  className="px-2 py-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded text-sm hover:bg-gray-300"
+                                  className="px-3 py-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm hover:bg-gray-300 dark:hover:bg-gray-600 transition font-semibold"
                                 >
                                   ✕
                                 </button>
                               </div>
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm mb-3">
-                                <div><span className="font-semibold">Year:</span> {paper.year}</div>
-                                <div><span className="font-semibold">Citations:</span> {paper.citationCount}</div>
-                                <div><span className="font-semibold">Authors:</span> {paper.authors?.length || 0}</div>
-                                <div><span className="font-semibold">Source:</span> {paper.paperId.includes('W') ? 'OpenAlex' : 'Semantic'}</div>
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                                <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded">
+                                  <p className="text-xs font-semibold text-blue-700 dark:text-blue-400">Year</p>
+                                  <p className="text-sm font-bold text-gray-900 dark:text-white">{paper.year}</p>
+                                </div>
+                                <div className="p-2 bg-orange-50 dark:bg-orange-900/20 rounded">
+                                  <p className="text-xs font-semibold text-orange-700 dark:text-orange-400">Citations</p>
+                                  <p className="text-sm font-bold text-gray-900 dark:text-white">{paper.citationCount}</p>
+                                </div>
+                                <div className="p-2 bg-purple-50 dark:bg-purple-900/20 rounded">
+                                  <p className="text-xs font-semibold text-purple-700 dark:text-purple-400">Authors</p>
+                                  <p className="text-sm font-bold text-gray-900 dark:text-white">{paper.authors?.length || 0}</p>
+                                </div>
+                                <div className="p-2 bg-green-50 dark:bg-green-900/20 rounded">
+                                  <p className="text-xs font-semibold text-green-700 dark:text-green-400">Source</p>
+                                  <p className="text-sm font-bold text-gray-900 dark:text-white">{paper.paperId.includes('W') ? 'OpenAlex' : 'Semantic'}</p>
+                                </div>
                               </div>
-                              <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">{paper.abstract?.substring(0, 300)}</p>
+                              <p className="text-sm text-gray-700 dark:text-gray-300 mb-4 leading-relaxed">{paper.abstract?.substring(0, 300)}</p>
                               <a
                                 href={paper.scholarLink}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 px-3 py-1 bg-blue-100 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded text-xs font-medium hover:bg-blue-200"
+                                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition"
                               >
-                                📖 Read →
+                                📖 Read Full Paper
+                                <span>→</span>
                               </a>
                             </div>
                           );
@@ -726,75 +744,103 @@ export default function App() {
 
                 {/* Trends */}
                 {trends.length > 3 && (
-                  <div className="p-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                    <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Publication Trend</h2>
-                    <ResponsiveContainer width="100%" height={200}>
-                      <LineChart data={trends}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="year" />
-                        <YAxis />
-                        <Tooltip />
-                        <Line type="monotone" dataKey="count" stroke="#3b82f6" strokeWidth={2} />
-                      </LineChart>
-                    </ResponsiveContainer>
+                  <div className="bg-white dark:bg-gray-800 rounded-xl border-2 border-blue-200 dark:border-blue-700 overflow-hidden hover:shadow-xl transition-shadow">
+                    <div className="p-6 bg-gradient-to-r from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/20 border-b border-blue-200 dark:border-blue-700">
+                      <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
+                        <span className="text-2xl">📈</span>
+                        Publication Trend
+                      </h2>
+                      <p className="text-sm text-blue-700 dark:text-blue-400 font-semibold mt-2">How publication volume has evolved</p>
+                    </div>
+                    <div className="p-6 bg-white dark:bg-gray-800">
+                      <ResponsiveContainer width="100%" height={250}>
+                        <LineChart data={trends} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                          <XAxis dataKey="year" stroke="#6b7280" />
+                          <YAxis stroke="#6b7280" />
+                          <Tooltip contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: '8px', color: '#fff' }} />
+                          <Line type="monotone" dataKey="count" stroke="#3b82f6" strokeWidth={3} dot={{ fill: '#3b82f6', r: 5 }} activeDot={{ r: 7 }} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
                   </div>
                 )}
 
                 {/* AI Summary */}
                 {aiSummary && (
-                  <div className="p-6 bg-gradient-to-br from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 rounded-lg border border-purple-200 dark:border-purple-700">
-                    <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-3">🤖 AI Research Guide</h2>
-                    <p className="text-gray-700 dark:text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">{aiSummary}</p>
+                  <div className="bg-white dark:bg-gray-800 rounded-xl border-2 border-purple-200 dark:border-purple-700 overflow-hidden hover:shadow-xl transition-shadow">
+                    <div className="p-6 bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 border-b border-purple-200 dark:border-purple-700">
+                      <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
+                        <span className="text-3xl">🤖</span>
+                        AI Research Guide
+                      </h2>
+                      <p className="text-sm text-purple-700 dark:text-purple-400 font-semibold mt-2">Synthesized analysis of the research landscape</p>
+                    </div>
+                    <div className="p-6">
+                      <p className="text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap text-sm">{aiSummary}</p>
+                    </div>
                   </div>
                 )}
 
                 {/* Advanced Metrics */}
                 {(blindSpotScore !== null || crossFieldMethods.length > 0 || latencyMap.length > 0) && (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {/* Blind Spot Score */}
                     {blindSpotScore !== null && (
-                      <div className="p-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 text-center">
-                        <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-gradient-to-br from-red-100 to-orange-100 dark:from-red-900/30 dark:to-orange-900/30 mb-3">
-                          <span className="text-3xl font-bold text-red-600 dark:text-red-400">{blindSpotScore}</span>
+                      <div className="group bg-white dark:bg-gray-800 rounded-xl border-2 border-red-200 dark:border-red-900/30 hover:border-red-400 dark:hover:border-red-600 transition-all hover:shadow-xl overflow-hidden">
+                        <div className="p-6 bg-gradient-to-br from-red-50 to-orange-50 dark:from-red-900/15 dark:to-orange-900/15 text-center border-b border-red-200 dark:border-red-900/30">
+                          <div className="inline-flex items-center justify-center w-28 h-28 rounded-full bg-gradient-to-br from-red-200 to-orange-200 dark:from-red-900/40 dark:to-orange-900/40 mb-4 border-4 border-red-300 dark:border-red-900/50">
+                            <span className="text-4xl font-bold text-red-700 dark:text-red-400">{blindSpotScore}</span>
+                          </div>
+                          <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-1">Blind Spot Score</h3>
+                          <p className="text-sm font-semibold text-red-700 dark:text-red-400">% Unexplored Territory</p>
                         </div>
-                        <h3 className="font-bold text-gray-900 dark:text-white mb-1">Blind Spot Score</h3>
-                        <p className="text-xs text-gray-600 dark:text-gray-400">% Unexplored Territory</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-500 mt-2">
-                          {blindSpotScore > 50 ? 'High unexplored territory' : blindSpotScore > 20 ? 'Moderate gaps' : 'Well-researched field'}
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-500 mt-1 italic">({gaps.length} gaps vs {papers.length} papers)</p>
+                        <div className="p-6">
+                          <p className="text-sm text-gray-700 dark:text-gray-300 font-semibold mb-2">
+                            {blindSpotScore > 50 ? '🔥 High unexplored territory' : blindSpotScore > 20 ? '⚡ Moderate gaps' : '✓ Well-researched field'}
+                          </p>
+                          <p className="text-xs text-gray-600 dark:text-gray-400">
+                            <span className="font-medium">{gaps.length}</span> identified gaps vs <span className="font-medium">{papers.length}</span> researched papers
+                          </p>
+                        </div>
                       </div>
                     )}
 
                     {/* Cross-Field Methods */}
                     {crossFieldMethods.length > 0 && (
-                      <div className="p-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                        <h3 className="font-bold text-gray-900 dark:text-white mb-3">🔄 Cross-Field Methods</h3>
-                        <div className="space-y-2 text-sm">
+                      <div className="group bg-white dark:bg-gray-800 rounded-xl border-2 border-blue-200 dark:border-blue-900/30 hover:border-blue-400 dark:hover:border-blue-600 transition-all hover:shadow-xl overflow-hidden">
+                        <div className="p-6 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/15 dark:to-indigo-900/15 border-b border-blue-200 dark:border-blue-900/30">
+                          <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-1">🔄 Cross-Field Methods</h3>
+                          <p className="text-sm text-blue-700 dark:text-blue-400 font-semibold">Approaches from adjacent fields</p>
+                        </div>
+                        <div className="p-6 space-y-3">
                           {crossFieldMethods.slice(0, 3).map((m, i) => (
-                            <div key={i} className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded">
-                              <p className="text-gray-700 dark:text-gray-300 font-medium line-clamp-1">{m.method}</p>
-                              <p className="text-xs text-gray-500 dark:text-gray-400">Used in {m.count} adjacent papers</p>
+                            <div key={i} className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition">
+                              <p className="text-sm font-medium text-gray-900 dark:text-white line-clamp-1">{m.method}</p>
+                              <p className="text-xs text-blue-700 dark:text-blue-400 mt-1">Used in {m.count} adjacent papers</p>
                             </div>
                           ))}
                         </div>
-                        <p className="text-xs text-gray-500 dark:text-gray-500 mt-2">Methods to apply from adjacent fields</p>
                       </div>
                     )}
 
                     {/* Latency Map */}
                     {latencyMap.length > 0 && (
-                      <div className="p-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                        <h3 className="font-bold text-gray-900 dark:text-white mb-3">⏱️ Gap Age</h3>
-                        <div className="space-y-2 text-sm">
+                      <div className="group bg-white dark:bg-gray-800 rounded-xl border-2 border-purple-200 dark:border-purple-900/30 hover:border-purple-400 dark:hover:border-purple-600 transition-all hover:shadow-xl overflow-hidden">
+                        <div className="p-6 bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/15 dark:to-pink-900/15 border-b border-purple-200 dark:border-purple-900/30">
+                          <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-1">⏱️ Gap Age Analysis</h3>
+                          <p className="text-sm text-purple-700 dark:text-purple-400 font-semibold">How long gaps have existed</p>
+                        </div>
+                        <div className="p-6 space-y-3">
                           {latencyMap.slice(0, 3).map((g, i) => (
-                            <div key={i} className={`p-2 rounded ${g.ageYears > 10 ? 'bg-red-50 dark:bg-red-900/20' : 'bg-yellow-50 dark:bg-yellow-900/20'}`}>
-                              <p className="text-gray-700 dark:text-gray-300 font-medium line-clamp-1 text-xs">{g.title}</p>
-                              <p className="text-xs text-gray-500 dark:text-gray-400">{g.ageYears}+ years old</p>
+                            <div key={i} className={`p-3 rounded-lg border transition ${g.ageYears > 10 ? 'bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-900/30 hover:bg-red-100' : 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-100 dark:border-yellow-900/30 hover:bg-yellow-100'}`}>
+                              <p className="text-sm font-medium text-gray-900 dark:text-white line-clamp-1">{g.title}</p>
+                              <p className={`text-xs mt-1 ${g.ageYears > 10 ? 'text-red-700 dark:text-red-400 font-bold' : 'text-yellow-700 dark:text-yellow-400'}`}>
+                                {g.ageYears}+ years unexplored
+                              </p>
                             </div>
                           ))}
                         </div>
-                        <p className="text-xs text-gray-500 dark:text-gray-500 mt-2">Red = long-standing gaps</p>
                       </div>
                     )}
                   </div>
@@ -804,15 +850,40 @@ export default function App() {
                 {gaps.length > 0 && (
                   <div className="border-t border-gray-300 dark:border-gray-700 pt-8">
                     <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-6">📊 Research Gaps</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 gap-6">
                       {gaps.map((gap, idx) => (
-                        <div key={idx} className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                          <h3 className="font-bold text-gray-900 dark:text-white mb-2">{gap.title}</h3>
-                          <p className="text-sm italic text-gray-700 dark:text-gray-300 mb-2">{gap.research_question}</p>
-                          <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">{gap.why_missing}</p>
-                          <div className="flex gap-2">
-                            <span className="px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-200 text-xs rounded">Novelty: {gap.novelty_score}</span>
-                            <span className="px-2 py-1 bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-200 text-xs rounded">{gap.difficulty}</span>
+                        <div key={idx} className="group bg-white dark:bg-gray-800 rounded-xl border-2 border-gray-200 dark:border-gray-700 hover:border-purple-400 dark:hover:border-purple-600 transition-all hover:shadow-xl overflow-hidden">
+                          {/* Header Section */}
+                          <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+                            <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-4">{gap.title}</h3>
+
+                            {/* Difficulty & Novelty Badges */}
+                            <div className="flex flex-wrap items-center gap-3">
+                              <span className={`px-4 py-2 rounded-lg font-semibold text-sm ${
+                                gap.difficulty === 'high'
+                                  ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+                                  : gap.difficulty === 'medium'
+                                  ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400'
+                                  : 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                              }`}>
+                                {gap.difficulty === 'high' ? '🔥' : gap.difficulty === 'medium' ? '⚡' : '✓'} {gap.difficulty.charAt(0).toUpperCase() + gap.difficulty.slice(1)} Difficulty
+                              </span>
+                              <span className="px-4 py-2 bg-gradient-to-r from-purple-100 to-purple-50 dark:from-purple-900/30 dark:to-purple-900/20 text-purple-700 dark:text-purple-400 rounded-lg font-semibold text-sm">
+                                💡 Novelty: {gap.novelty_score}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Research Question Section */}
+                          <div className="px-6 py-4 bg-gradient-to-b from-blue-50 to-white dark:from-blue-900/10 dark:to-gray-800 border-b border-gray-200 dark:border-gray-700">
+                            <p className="text-sm font-semibold text-blue-700 dark:text-blue-400 mb-2">🎯 Research Question</p>
+                            <p className="text-base italic text-gray-700 dark:text-gray-300 leading-relaxed">{gap.research_question}</p>
+                          </div>
+
+                          {/* Why Missing Section */}
+                          <div className="px-6 py-4 bg-gradient-to-b from-orange-50 to-white dark:from-orange-900/10 dark:to-gray-800">
+                            <p className="text-sm font-semibold text-orange-700 dark:text-orange-400 mb-2">❓ Why It's Missing</p>
+                            <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{gap.why_missing}</p>
                           </div>
                         </div>
                       ))}
@@ -824,25 +895,41 @@ export default function App() {
                 {papers.length > 0 && (
                   <div className="border-t border-gray-300 dark:border-gray-700 pt-8">
                     <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-6">⭐ Trending in This Field</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-8">
                       {[...papers].sort((a, b) => (b.citationCount || 0) - (a.citationCount || 0)).slice(0, 4).map((paper, idx) => (
                         <a
                           key={idx}
                           href={paper.scholarLink}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="p-4 bg-gradient-to-br from-yellow-50 to-orange-50 dark:from-yellow-900/10 dark:to-orange-900/10 rounded-lg border border-yellow-200 dark:border-yellow-700/30 hover:shadow-lg transition group"
+                          className="group bg-white dark:bg-gray-800 rounded-xl border-2 border-yellow-200 dark:border-yellow-700/30 hover:border-yellow-400 dark:hover:border-yellow-600 transition-all hover:shadow-xl overflow-hidden"
                         >
-                          <div className="flex items-start gap-2 mb-2">
-                            <span className="text-2xl">📈</span>
-                            <h3 className="font-bold text-gray-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition line-clamp-2">{paper.title}</h3>
+                          {/* Header with Trend Icon */}
+                          <div className="p-5 border-b border-yellow-200 dark:border-yellow-700/30 bg-gradient-to-r from-yellow-50 to-orange-50 dark:from-yellow-900/15 dark:to-orange-900/15">
+                            <div className="flex items-start gap-3 mb-3">
+                              <span className="text-3xl">🔥</span>
+                              <h3 className="font-bold text-gray-900 dark:text-white group-hover:text-orange-600 dark:group-hover:text-orange-400 transition line-clamp-2 text-lg">{paper.title}</h3>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-3">
+                              <span className="px-3 py-1 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 rounded-lg text-sm font-semibold">
+                                📊 {paper.citationCount} citations
+                              </span>
+                              <span className="px-3 py-1 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-600 rounded-lg text-sm font-semibold">
+                                📅 {paper.year}
+                              </span>
+                            </div>
                           </div>
-                          <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">
-                            {paper.authors?.slice(0, 1).map(a => a.name).join(', ')} • {paper.year}
-                          </p>
-                          <p className="text-xs text-orange-700 dark:text-orange-400 font-semibold">
-                            🔥 {paper.citationCount} citations
-                          </p>
+
+                          {/* Author & Details */}
+                          <div className="p-5 bg-white dark:bg-gray-800">
+                            <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
+                              <span className="font-semibold">Authors:</span> {paper.authors?.slice(0, 2).map(a => a.name).join(', ')}{(paper.authors?.length || 0) > 2 ? ` +${paper.authors.length - 2} more` : ''}
+                            </p>
+                            <div className="inline-flex items-center gap-2 px-3 py-2 bg-orange-100 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400 rounded-lg text-sm font-semibold group-hover:bg-orange-200 dark:group-hover:bg-orange-900/40 transition">
+                              📖 Read Full Paper
+                              <span>→</span>
+                            </div>
+                          </div>
                         </a>
                       ))}
                     </div>
@@ -1061,26 +1148,44 @@ export default function App() {
               <div className="space-y-8">
                 {/* Grant Generator */}
                 {gaps.length > 0 && (
-                  <div className="p-6 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-lg border border-green-200 dark:border-green-700">
-                    <button
-                      onClick={() => grantIntro ? setGrantIntro('') : generateGrantProposal(question, papers).then(setGrantIntro)}
-                      className="w-full px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold mb-4"
-                    >
-                      {grantIntro ? '✕ Hide Grant Intro' : '📝 Generate NSF Grant Intro'}
-                    </button>
-                    {grantIntro && (
-                      <div className="p-4 bg-white dark:bg-gray-800 rounded text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
-                        {grantIntro}
-                      </div>
-                    )}
+                  <div className="bg-white dark:bg-gray-800 rounded-xl border-2 border-green-200 dark:border-green-700 overflow-hidden hover:shadow-xl transition-shadow">
+                    <div className="p-6 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border-b border-green-200 dark:border-green-700">
+                      <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-3 mb-3">
+                        <span className="text-2xl">📝</span>
+                        NSF Grant Proposal Generator
+                      </h2>
+                      <p className="text-sm text-green-700 dark:text-green-400 font-semibold">AI-powered research proposal based on identified gaps</p>
+                    </div>
+                    <div className="p-6">
+                      <button
+                        onClick={() => grantIntro ? setGrantIntro('') : generateGrantProposal(question, papers).then(setGrantIntro)}
+                        className="w-full px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold mb-4 transition-all hover:shadow-lg"
+                      >
+                        {grantIntro ? '✕ Hide Grant Intro' : '✨ Generate NSF Grant Intro'}
+                      </button>
+                      {grantIntro && (
+                        <div className="p-6 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/10 dark:to-emerald-900/10 rounded-lg border border-green-200 dark:border-green-700">
+                          <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">{grantIntro}</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 
                 {/* Big Assumption */}
                 {bigAssumption && (
-                  <div className="p-6 bg-gradient-to-r from-orange-50 to-red-50 dark:from-orange-900/20 dark:to-red-900/20 rounded-lg border-2 border-orange-300 dark:border-orange-700">
-                    <p className="text-sm font-bold text-orange-600 dark:text-orange-400 uppercase mb-2">🎯 The Field's Biggest Untested Assumption</p>
-                    <p className="text-lg font-bold text-gray-900 dark:text-white italic">"{bigAssumption}"</p>
+                  <div className="bg-white dark:bg-gray-800 rounded-xl border-2 border-orange-300 dark:border-orange-700 overflow-hidden hover:shadow-xl transition-shadow">
+                    <div className="p-6 bg-gradient-to-r from-orange-50 to-red-50 dark:from-orange-900/20 dark:to-red-900/20 border-b border-orange-300 dark:border-orange-700">
+                      <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-3 mb-2">
+                        <span className="text-2xl">🎯</span>
+                        The Field's Biggest Untested Assumption
+                      </h2>
+                      <p className="text-xs font-bold text-orange-600 dark:text-orange-400 uppercase tracking-wide">Critical insight for your research</p>
+                    </div>
+                    <div className="p-6">
+                      <p className="text-lg italic text-gray-900 dark:text-white font-semibold leading-relaxed">"{bigAssumption}"</p>
+                      <p className="text-sm text-orange-700 dark:text-orange-400 font-semibold mt-4">💡 Consider challenging this assumption in your proposal</p>
+                    </div>
                   </div>
                 )}
 
@@ -1088,15 +1193,40 @@ export default function App() {
                 {gaps.length > 0 && (
                   <div className="border-t border-gray-300 dark:border-gray-700 pt-8">
                     <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-6">📋 Research Gaps (from Landscape)</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 gap-6">
                       {gaps.map((gap, idx) => (
-                        <div key={idx} className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                          <h3 className="font-bold text-gray-900 dark:text-white mb-2">{gap.title}</h3>
-                          <p className="text-sm italic text-gray-700 dark:text-gray-300 mb-2">{gap.research_question}</p>
-                          <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">{gap.why_missing}</p>
-                          <div className="flex gap-2">
-                            <span className="px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-200 text-xs rounded">Novelty: {gap.novelty_score}</span>
-                            <span className="px-2 py-1 bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-200 text-xs rounded">{gap.difficulty}</span>
+                        <div key={idx} className="group bg-white dark:bg-gray-800 rounded-xl border-2 border-gray-200 dark:border-gray-700 hover:border-purple-400 dark:hover:border-purple-600 transition-all hover:shadow-xl overflow-hidden">
+                          {/* Header Section */}
+                          <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+                            <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-4">{gap.title}</h3>
+
+                            {/* Difficulty & Novelty Badges */}
+                            <div className="flex flex-wrap items-center gap-3">
+                              <span className={`px-4 py-2 rounded-lg font-semibold text-sm ${
+                                gap.difficulty === 'high'
+                                  ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+                                  : gap.difficulty === 'medium'
+                                  ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400'
+                                  : 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                              }`}>
+                                {gap.difficulty === 'high' ? '🔥' : gap.difficulty === 'medium' ? '⚡' : '✓'} {gap.difficulty.charAt(0).toUpperCase() + gap.difficulty.slice(1)} Difficulty
+                              </span>
+                              <span className="px-4 py-2 bg-gradient-to-r from-purple-100 to-purple-50 dark:from-purple-900/30 dark:to-purple-900/20 text-purple-700 dark:text-purple-400 rounded-lg font-semibold text-sm">
+                                💡 Novelty: {gap.novelty_score}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Research Question Section */}
+                          <div className="px-6 py-4 bg-gradient-to-b from-blue-50 to-white dark:from-blue-900/10 dark:to-gray-800 border-b border-gray-200 dark:border-gray-700">
+                            <p className="text-sm font-semibold text-blue-700 dark:text-blue-400 mb-2">🎯 Research Question</p>
+                            <p className="text-base italic text-gray-700 dark:text-gray-300 leading-relaxed">{gap.research_question}</p>
+                          </div>
+
+                          {/* Why Missing Section */}
+                          <div className="px-6 py-4 bg-gradient-to-b from-orange-50 to-white dark:from-orange-900/10 dark:to-gray-800">
+                            <p className="text-sm font-semibold text-orange-700 dark:text-orange-400 mb-2">❓ Why It's Missing</p>
+                            <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{gap.why_missing}</p>
                           </div>
                         </div>
                       ))}
@@ -1123,73 +1253,80 @@ export default function App() {
                           <p className="text-sm text-gray-700 dark:text-gray-300 italic mt-1">{gap.research_question}</p>
                         </div>
 
-                        <div className="p-4">
+                        <div className="p-6 space-y-4">
                           {collaborators[gap.title] && collaborators[gap.title].length > 0 ? (
-                            <div className="space-y-3">
+                            <div className="space-y-4">
                               {collaborators[gap.title].map((collab, idx) => (
-                                <div key={idx} className="p-4 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 hover:shadow-md transition">
-                                  <div className="flex justify-between items-start gap-2 mb-2">
-                                    <div>
-                                      <p className="font-semibold text-gray-900 dark:text-white">👤 {collab.name}</p>
-                                      <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">
-                                        Last active: {collab.year}
-                                      </p>
+                                <div key={idx} className="group bg-white dark:bg-gray-700 rounded-lg border-2 border-blue-100 dark:border-blue-900/30 hover:border-blue-400 dark:hover:border-blue-600 transition-all hover:shadow-lg overflow-hidden">
+                                  {/* Researcher Header */}
+                                  <div className="p-4 border-b border-blue-100 dark:border-blue-900/30 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/10 dark:to-indigo-900/10">
+                                    <div className="flex items-center gap-3 mb-2">
+                                      <span className="text-2xl">👤</span>
+                                      <div className="flex-1 min-w-0">
+                                        <p className="font-bold text-gray-900 dark:text-white text-lg">{collab.name}</p>
+                                        <p className="text-sm text-blue-700 dark:text-blue-400 font-semibold">Last active: {collab.year}</p>
+                                      </div>
                                     </div>
                                   </div>
-                                  <div className="flex flex-wrap gap-2 mt-3">
-                                    <a
-                                      href={`https://scholar.google.com/scholar?q="${encodeURIComponent(collab.name)}"`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="px-2 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded text-xs hover:bg-blue-100 dark:hover:bg-blue-900/40 transition"
-                                    >
-                                      🔍 Google Scholar
-                                    </a>
-                                    <a
-                                      href={`https://www.researchgate.net/search?q="${encodeURIComponent(collab.name)}"`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="px-2 py-1 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 rounded text-xs hover:bg-green-100 dark:hover:bg-green-900/40 transition"
-                                    >
-                                      🔗 ResearchGate
-                                    </a>
-                                    <a
-                                      href={`https://orcid.org/search/orcid/${encodeURIComponent(collab.name)}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="px-2 py-1 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 rounded text-xs hover:bg-green-100 dark:hover:bg-green-900/40 transition"
-                                    >
-                                      📋 ORCID
-                                    </a>
-                                    <a
-                                      href={`https://www.linkedin.com/search/results/people/?keywords="${encodeURIComponent(collab.name)}"`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="px-2 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded text-xs hover:bg-blue-100 dark:hover:bg-blue-900/40 transition"
-                                    >
-                                      💼 LinkedIn
-                                    </a>
+
+                                  {/* Profile Links */}
+                                  <div className="p-4">
+                                    <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-3 uppercase tracking-wide">Connect with {collab.name.split(' ')[0]}</p>
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <a
+                                        href={`https://scholar.google.com/scholar?q="${encodeURIComponent(collab.name)}"`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="px-3 py-2 bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 rounded-lg text-sm font-semibold hover:bg-blue-200 dark:hover:bg-blue-900/40 transition flex items-center gap-1"
+                                      >
+                                        🔍 Google Scholar
+                                      </a>
+                                      <a
+                                        href={`https://www.researchgate.net/search?q="${encodeURIComponent(collab.name)}"`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="px-3 py-2 bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded-lg text-sm font-semibold hover:bg-green-200 dark:hover:bg-green-900/40 transition flex items-center gap-1"
+                                      >
+                                        🔗 ResearchGate
+                                      </a>
+                                      <a
+                                        href={`https://orcid.org/search/orcid/${encodeURIComponent(collab.name)}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="px-3 py-2 bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded-lg text-sm font-semibold hover:bg-green-200 dark:hover:bg-green-900/40 transition flex items-center gap-1"
+                                      >
+                                        📋 ORCID
+                                      </a>
+                                      <a
+                                        href={`https://www.linkedin.com/search/results/people/?keywords="${encodeURIComponent(collab.name)}"`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="px-3 py-2 bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 rounded-lg text-sm font-semibold hover:bg-blue-200 dark:hover:bg-blue-900/40 transition flex items-center gap-1"
+                                      >
+                                        💼 LinkedIn
+                                      </a>
+                                    </div>
                                   </div>
                                 </div>
                               ))}
                             </div>
                           ) : (
-                            <div className="p-4 text-center text-gray-500 dark:text-gray-400 text-sm">
-                              <p className="mb-3">No recent researchers found, but you can explore these options:</p>
+                            <div className="p-6 bg-gradient-to-br from-orange-50 to-yellow-50 dark:from-orange-900/10 dark:to-yellow-900/10 rounded-lg border-2 border-orange-200 dark:border-orange-900/30 text-center">
+                              <p className="text-gray-700 dark:text-gray-300 font-semibold mb-4">No recent researchers found, but explore this gap:</p>
                               <div className="flex flex-wrap gap-2 justify-center">
                                 <a
                                   href={`https://scholar.google.com/scholar?q="${encodeURIComponent(gap.research_question)}"`}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded text-xs hover:bg-blue-200 transition"
+                                  className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition"
                                 >
-                                  🔍 Search Google Scholar
+                                  🔍 Google Scholar
                                 </a>
                                 <a
                                   href={`https://www.semanticscholar.org/search?q="${encodeURIComponent(gap.research_question)}"`}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="px-3 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 rounded text-xs hover:bg-purple-200 transition"
+                                  className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-semibold hover:bg-purple-700 transition"
                                 >
                                   📚 Semantic Scholar
                                 </a>
@@ -1197,7 +1334,7 @@ export default function App() {
                                   href={`https://www.researchgate.net/search?q="${encodeURIComponent(gap.research_question)}"`}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="px-3 py-1 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded text-xs hover:bg-green-200 transition"
+                                  className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition"
                                 >
                                   🔗 ResearchGate
                                 </a>
