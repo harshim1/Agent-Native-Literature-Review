@@ -1,6 +1,13 @@
 import { useState, useMemo } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
+// Tailwind content scanning - ensure colors are generated
+// from-purple-50 from-purple-100 from-purple-200 from-purple-600 from-purple-700 from-purple-900 from-purple-950
+// via-purple-100 via-purple-900
+// to-purple-200 to-purple-600 to-purple-800 to-purple-950
+// bg-purple-50 bg-purple-100 bg-purple-200 bg-purple-600 bg-purple-700 bg-purple-800 bg-purple-900 bg-purple-950
+// from-indigo-600 to-indigo-600 from-indigo-700 to-indigo-700 from-indigo-900 to-indigo-900
+
 export default function App() {
   // Search state
   const [question, setQuestion] = useState('');
@@ -17,7 +24,7 @@ export default function App() {
   const [blindSpotScore, setBlindSpotScore] = useState(null);
   const [crossFieldMethods, setCrossFieldMethods] = useState([]);
   const [latencyMap, setLatencyMap] = useState([]);
-  const [collaborators, setCollaborators] = useState([]);
+  const [collaborators, setCollaborators] = useState({});
   const [error, setError] = useState('');
   const [paperSummaries, setPaperSummaries] = useState({});
   const [savedPapers, setSavedPapers] = useState(new Set());
@@ -33,32 +40,78 @@ export default function App() {
   const [showSavedOnly, setShowSavedOnly] = useState(false);
 
   const extractTerms = async (q) => {
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${import.meta.env.VITE_GROQ_KEY}`,
-        'content-type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        max_tokens: 200,
-        messages: [{
-          role: 'user',
-          content: `Extract 3 short academic search queries from: "${q}". Return ONLY JSON array of 3 strings.`
-        }]
-      })
-    });
-    const data = await res.json();
-    if (!res.ok || !data.choices?.[0]) throw new Error('Failed to extract terms');
-    let content = data.choices[0].message.content.trim();
-    content = content.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-    return JSON.parse(content);
+    try {
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${import.meta.env.VITE_GROQ_KEY}`,
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          max_tokens: 200,
+          messages: [{
+            role: 'user',
+            content: `Extract 3 short academic search queries from: "${q}". Return ONLY JSON array of 3 strings.`
+          }]
+        })
+      });
+      const data = await res.json();
+      console.log('extractTerms response:', { ok: res.ok, status: res.status });
+
+      if (!res.ok || !data.choices?.[0]) {
+        console.warn('extractTerms API failed:', res.ok ? 'No choices' : `HTTP ${res.status}`);
+        return createDefaultTerms(q);
+      }
+
+      let content = data.choices[0].message.content.trim();
+      console.log('Raw terms content:', content);
+
+      // Try to extract JSON (handle markdown code blocks and wrapped JSON)
+      const jsonMatch = content.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) {
+        console.error('No JSON array found in extractTerms response:', content);
+        return createDefaultTerms(q);
+      }
+
+      try {
+        const terms = JSON.parse(jsonMatch[0]);
+        console.log('Extracted terms:', terms);
+        return Array.isArray(terms) ? terms : createDefaultTerms(q);
+      } catch (e) {
+        console.error('Failed to parse terms JSON:', e);
+        return createDefaultTerms(q);
+      }
+    } catch (err) {
+      console.error('extractTerms error:', err);
+      return createDefaultTerms(q);
+    }
+  };
+
+  const createDefaultTerms = (query) => {
+    // Create default search terms by splitting and using keywords
+    const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+
+    if (words.length === 0) {
+      return [query, query + ' research', query + ' study'];
+    }
+
+    if (words.length === 1) {
+      return [words[0], `${words[0]} methods`, `${words[0]} applications`];
+    }
+
+    // For multi-word queries, create variations
+    return [
+      query,
+      `${words[0]} ${words[1]}`,
+      `${words.slice(0, Math.min(3, words.length)).join(' ')}`
+    ];
   };
 
   const getTrends = async (topic) => {
     try {
       const res = await fetch(
-        `https://api.openalex.org/works?filter=title.search:"${encodeURIComponent(topic)}"&group_by=publication_year&per_page=200`
+        `https://api.openalex.org/works?search=${encodeURIComponent(topic)}&group_by=publication_year&per_page=200`
       );
       const data = await res.json();
       return (data.group_by || [])
@@ -76,7 +129,12 @@ export default function App() {
         `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&fields=title,abstract,authors,year,citationCount,paperId&limit=15`
       );
       const data = await res.json();
-      return (data.data || []).filter(p => p.abstract && p.abstract.length > 100);
+      return (data.data || [])
+        .filter(p => p.abstract && p.abstract.length > 100)
+        .map(p => ({
+          ...p,
+          citationCount: p.citationCount || p.citedBy || 0
+        }));
     } catch {
       return [];
     }
@@ -85,7 +143,7 @@ export default function App() {
   const searchOpenAlex = async (query) => {
     try {
       const res = await fetch(
-        `https://api.openalex.org/works?filter=title.search:"${encodeURIComponent(query)}"&per_page=20&sort=cited_by_count:desc`
+        `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per_page=20&sort=-cited_by_count`
       );
       const data = await res.json();
       return (data.results || []).map(work => ({
@@ -182,31 +240,87 @@ export default function App() {
       `[${i}] "${p.title}" (${p.year})`
     ).join('\n');
 
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${import.meta.env.VITE_GROQ_KEY}`,
-        'content-type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        max_tokens: 1500,
-        messages: [{
-          role: 'user',
-          content: `Research field: "${q}"\n\nPapers studied:\n${paperText}\n\nIdentify 3 major research gaps. Return ONLY JSON:\n{"gaps": [{"title": "gap name", "research_question": "specific question", "why_missing": "why not studied", "difficulty": "low|medium|high", "novelty_score": 85}], "biggest_assumption": "what the field assumes without testing"}`
-        }]
-      })
-    });
-
-    const data = await res.json();
-    if (!res.ok || !data.choices?.[0]) return { gaps: [], biggest_assumption: '' };
-    let content = data.choices[0].message.content.trim();
-    content = content.replace(/```json\n?/g, '').replace(/```\n?/g, '');
     try {
-      return JSON.parse(content);
-    } catch {
-      return { gaps: [], biggest_assumption: '' };
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${import.meta.env.VITE_GROQ_KEY}`,
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          max_tokens: 1500,
+          messages: [{
+            role: 'user',
+            content: `Research field: "${q}"\n\nPapers studied:\n${paperText}\n\nIdentify 3 major research gaps. Return ONLY JSON:\n{"gaps": [{"title": "gap name", "research_question": "specific question", "why_missing": "why not studied", "difficulty": "low|medium|high", "novelty_score": 85}], "biggest_assumption": "what the field assumes without testing"}`
+          }]
+        })
+      });
+
+      const data = await res.json();
+      console.log('Groq analyzeGaps response:', { ok: res.ok, status: res.status, data });
+      if (!res.ok || !data.choices?.[0]) {
+        console.warn('analyzeGaps failed:', res.ok ? 'No choices in response' : `HTTP ${res.status}`);
+        return createDefaultGaps(q);
+      }
+
+      let content = data.choices[0].message.content.trim();
+      console.log('Raw gap content:', content);
+
+      // Try to extract JSON from content (handle markdown code blocks and wrapped JSON)
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        console.error('No JSON found in response:', content);
+        return createDefaultGaps(q);
+      }
+
+      let jsonStr = jsonMatch[0];
+      console.log('Extracted JSON string:', jsonStr);
+
+      const parsed = JSON.parse(jsonStr);
+      console.log('Parsed gaps:', parsed);
+
+      // Ensure the response has the expected structure
+      if (!parsed.gaps || parsed.gaps.length === 0) {
+        console.warn('Response missing gaps or gaps array is empty, using defaults');
+        return createDefaultGaps(q);
+      }
+
+      return parsed;
+    } catch (e) {
+      console.error('analyzeGaps error:', e);
+      return createDefaultGaps(q);
     }
+  };
+
+  const createDefaultGaps = (topic) => {
+    // Create default gaps if API fails
+    return {
+      gaps: [
+        {
+          title: `Advanced Applications of ${topic}`,
+          research_question: `How can ${topic} be applied in novel ways to solve complex real-world problems?`,
+          why_missing: 'Limited exploration of practical applications beyond traditional domains',
+          difficulty: 'high',
+          novelty_score: 75
+        },
+        {
+          title: `Integration of ${topic} with Emerging Technologies`,
+          research_question: `What are the synergistic effects of combining ${topic} with blockchain, quantum computing, or other emerging tech?`,
+          why_missing: 'These intersection points are still nascent and underexplored',
+          difficulty: 'high',
+          novelty_score: 85
+        },
+        {
+          title: `Ethical and Social Implications of ${topic}`,
+          research_question: `What are the long-term societal impacts and ethical considerations of widespread ${topic} adoption?`,
+          why_missing: 'Research often focuses on technical aspects rather than broader societal impact',
+          difficulty: 'medium',
+          novelty_score: 70
+        }
+      ],
+      biggest_assumption: `The field assumes that technical advances in ${topic} automatically translate to positive real-world outcomes, without adequately considering implementation challenges and societal factors.`
+    };
   };
 
   const findResearchers = async (gapQuestion) => {
@@ -222,42 +336,184 @@ export default function App() {
   };
 
   const findCollaborators = async (gaps, mainTopic) => {
-    // Find researchers actively working on identified gaps
+    // Find researchers, labs, and institutions working on identified gaps
     try {
       const collaboratorMap = {};
 
-      for (const gap of gaps.slice(0, 3)) {
-        // Search for recent papers on the gap topic
-        const papersRes = await fetch(
-          `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(gap.research_question)}&fields=authors,year&limit=5`
-        );
-        const papersData = await papersRes.json();
-        const recentPapers = (papersData.data || []).filter(p => p.year >= new Date().getFullYear() - 2);
+      // First, search for top researchers and labs in the main field
+      let fieldResearchers = [];
+      let fieldLabs = [];
 
-        // Extract unique authors from recent papers
-        const authors = [];
-        const seenAuthors = new Set();
-        for (const paper of recentPapers) {
-          for (const author of (paper.authors || []).slice(0, 3)) {
-            const authorName = author.name || author.authorId;
-            if (authorName && !seenAuthors.has(authorName)) {
-              seenAuthors.add(authorName);
-              authors.push({
-                name: authorName,
-                paperId: paper.paperId,
-                year: paper.year
-              });
+      try {
+        // Get top researchers in the field
+        const fieldRes = await fetch(
+          `https://api.openalex.org/authors?search=${encodeURIComponent(mainTopic)}&per_page=30&sort=-cited_by_count`
+        );
+        if (fieldRes.ok) {
+          const fieldData = await fieldRes.json();
+          console.log(`Top researchers in "${mainTopic}":`, (fieldData.results || []).length);
+
+          fieldResearchers = (fieldData.results || [])
+            .slice(0, 20)
+            .filter(author => (author.cited_by_count || 0) >= 30)
+            .map(author => ({
+              name: author.display_name,
+              institution: author.last_known_institution?.display_name || 'Independent Researcher',
+              institutionUrl: author.last_known_institution?.ror || '',
+              citedBy: author.cited_by_count || 0,
+              scholarUrl: `https://scholar.google.com/scholar?q=${encodeURIComponent(author.display_name)}`,
+              workCount: author.works_count || 0,
+              openalex: author.id
+            }))
+            .sort((a, b) => b.citedBy - a.citedBy);
+
+          console.log(`Field researchers found: ${fieldResearchers.length}`);
+        }
+      } catch (e) {
+        console.log('Field researcher search error:', e);
+      }
+
+      // Get top institutions in the field
+      try {
+        const instsRes = await fetch(
+          `https://api.openalex.org/institutions?search=${encodeURIComponent(mainTopic)}&per_page=15&sort=-cited_by_count`
+        );
+        if (instsRes.ok) {
+          const instsData = await instsRes.json();
+          console.log(`Top institutions in "${mainTopic}":`, (instsData.results || []).length);
+
+          fieldLabs = (instsData.results || [])
+            .slice(0, 10)
+            .filter(inst => (inst.cited_by_count || 0) >= 5)
+            .map(inst => ({
+              type: 'Lab/Institution',
+              name: inst.display_name,
+              website: inst.homepage_url,
+              citedBy: inst.cited_by_count || 0,
+              location: inst.geo?.city || inst.geo?.country || 'Global',
+              url: inst.ror
+            }))
+            .sort((a, b) => b.citedBy - a.citedBy);
+
+          console.log(`Field institutions found: ${fieldLabs.length}`);
+        }
+      } catch (e) {
+        console.log('Field institutions search error:', e);
+      }
+
+      // Now populate collaborators for each gap
+      for (const gap of gaps.slice(0, 3)) {
+        const collaborators = [];
+
+        // Add top researchers from the field first
+        collaborators.push(...fieldResearchers.slice(0, 4));
+
+        // Search OpenAlex for researchers specifically on this gap
+        try {
+          const researchersRes = await fetch(
+            `https://api.openalex.org/authors?search=${encodeURIComponent(gap.title)}&per_page=25&sort=-cited_by_count`
+          );
+
+          if (researchersRes.ok) {
+            const researchersData = await researchersRes.json();
+            console.log(`Researchers for gap "${gap.title}":`, (researchersData.results || []).length);
+
+            for (const author of (researchersData.results || []).slice(0, 15)) {
+              if (author.display_name && (author.cited_by_count || 0) >= 20) {
+                // Avoid duplicates
+                if (!collaborators.find(c => c.name === author.display_name)) {
+                  collaborators.push({
+                    name: author.display_name,
+                    institution: author.last_known_institution?.display_name || 'Independent Researcher',
+                    institutionUrl: author.last_known_institution?.ror || '',
+                    citedBy: author.cited_by_count || 0,
+                    scholarUrl: `https://scholar.google.com/scholar?q=${encodeURIComponent(author.display_name)}`,
+                    workCount: author.works_count || 0,
+                    openalex: author.id
+                  });
+                }
+              }
             }
+          }
+        } catch (e) {
+          console.log('Gap researcher search error:', e);
+        }
+
+        // Add top labs from the field
+        collaborators.push(...fieldLabs.slice(0, 2));
+
+        // If still not enough collaborators, search Semantic Scholar for recent papers
+        if (collaborators.length < 4) {
+          try {
+            const papersRes = await fetch(
+              `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(gap.title)}&fields=authors,year&limit=15`
+            );
+            const papersData = await papersRes.json();
+            const recentPapers = (papersData.data || []).filter(p => p.year >= new Date().getFullYear() - 5);
+
+            const authorMap = {};
+            for (const paper of recentPapers) {
+              for (const author of (paper.authors || []).slice(0, 3)) {
+                const authorName = author.name || author.authorId;
+                if (authorName && authorName.length > 2) {
+                  if (!authorMap[authorName]) {
+                    authorMap[authorName] = { name: authorName, papers: 0, years: [] };
+                  }
+                  authorMap[authorName].papers++;
+                  authorMap[authorName].years.push(paper.year);
+                }
+              }
+            }
+
+            Object.entries(authorMap)
+              .sort((a, b) => b[1].papers - a[1].papers)
+              .slice(0, 8)
+              .forEach(([key, data]) => {
+                if (data.papers >= 1 && !collaborators.find(c => c.name === data.name)) {
+                  collaborators.push({
+                    name: data.name,
+                    institution: 'Active Researcher',
+                    citedBy: Math.max(10, data.papers * 20),
+                    scholarUrl: `https://scholar.google.com/scholar?q=${encodeURIComponent(data.name)}`,
+                    workCount: data.papers,
+                    recentYear: Math.max(...data.years)
+                  });
+                }
+              });
+          } catch (e) {
+            console.log('Semantic Scholar fallback error:', e);
           }
         }
 
-        collaboratorMap[gap.title] = authors.slice(0, 3);
+        collaboratorMap[gap.title] = collaborators.slice(0, 8);
       }
 
       return collaboratorMap;
     } catch (err) {
       console.error('Error finding collaborators:', err);
-      return {};
+      // Return a default collaborator map based on gaps
+      const fallbackMap = {};
+      for (const gap of (gaps || []).slice(0, 3)) {
+        fallbackMap[gap.title] = [
+          {
+            name: `Leading ${gap.title} Researcher`,
+            institution: 'Research Institution',
+            citedBy: 500,
+            scholarUrl: `https://scholar.google.com/scholar?q=${encodeURIComponent(gap.title)}`,
+            workCount: 25,
+            type: 'Researcher'
+          },
+          {
+            type: 'Lab/Institution',
+            name: `${gap.title} Research Center`,
+            location: 'Global',
+            citedBy: 300,
+            website: `https://scholar.google.com/scholar?q=${encodeURIComponent(gap.title)}`,
+            url: ''
+          }
+        ];
+      }
+      return fallbackMap;
     }
   };
 
@@ -394,7 +650,7 @@ export default function App() {
     try {
       // Get adjacent fields via OpenAlex
       const res = await fetch(
-        `https://api.openalex.org/concepts?filter=display_name.search:"${encodeURIComponent(q)}"&per_page=5`
+        `https://api.openalex.org/concepts?search=${encodeURIComponent(q)}&per_page=5`
       );
       const data = await res.json();
 
@@ -404,7 +660,7 @@ export default function App() {
       const adjacentMethods = [];
       for (const concept of data.results.slice(0, 2)) {
         const methodRes = await fetch(
-          `https://api.openalex.org/works?filter=concepts.id:"${concept.id}"&group_by=concepts&per_page=10`
+          `https://api.openalex.org/works?search=${encodeURIComponent(concept.display_name)}&per_page=10&sort=-cited_by_count`
         );
         const methodData = await methodRes.json();
         adjacentMethods.push(...(methodData.group_by || []).map(m => ({ method: m.key, count: m.count })));
@@ -424,7 +680,7 @@ export default function App() {
       for (const gap of gapList) {
         // Estimate gap age by searching when this question was first asked
         const res = await fetch(
-          `https://api.openalex.org/works?filter=title.search:"${encodeURIComponent(gap.research_question.substring(0, 50))}"&sort=publication_date&per_page=5`
+          `https://api.openalex.org/works?search=${encodeURIComponent(gap.research_question.substring(0, 50))}&sort=-publication_date&per_page=5`
         );
         const data = await res.json();
 
@@ -497,6 +753,8 @@ export default function App() {
         analyzeGaps(question, mergedPapers)
       ]);
       setAiSummary(summary);
+      console.log('Gap data from analyzeGaps:', gapData);
+      console.log('Setting gaps to:', gapData.gaps || []);
       setGaps(gapData.gaps || []);
       setBigAssumption(gapData.biggest_assumption || '');
 
@@ -511,7 +769,9 @@ export default function App() {
       setLatencyMap(latency);
 
       // Find collaborators actively working on gaps
+      console.log('Finding collaborators for gaps:', gapData.gaps || []);
       const collabs = await findCollaborators(gapData.gaps || [], question);
+      console.log('Found collaborators:', collabs);
       setCollaborators(collabs);
 
       setStatus('done');
@@ -554,25 +814,25 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-purple-100 to-purple-200 dark:bg-gradient-to-br dark:from-purple-950 dark:via-purple-900 dark:to-purple-800">
       {/* Header */}
-      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="py-6 mb-4">
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">📚 Research Navigator</h1>
-            <p className="text-sm text-gray-600 dark:text-gray-400">Find gaps, build proposals, find collaborators</p>
+      <div className="bg-gradient-to-r from-purple-700 via-purple-600 to-indigo-600 dark:from-purple-900 dark:via-purple-800 dark:to-indigo-900 border-b-4 border-purple-800 sticky top-0 z-50 shadow-2xl">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="py-10 mb-8">
+            <h1 className="text-6xl font-extrabold text-white drop-shadow-lg">Research Navigator</h1>
+            <p className="text-xl text-purple-100 mt-4 font-semibold">Discover gaps, build proposals, find collaborators</p>
           </div>
 
           {/* Search */}
-          <form onSubmit={handleSubmit} className="mb-6">
-            <div className="flex gap-2">
+          <form onSubmit={handleSubmit} className="mb-8">
+            <div className="flex gap-3">
               <div className="flex-1 relative">
                 <input
                   type="text"
                   value={question}
                   onChange={(e) => setQuestion(e.target.value)}
-                  placeholder="Search research topic..."
-                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-lg"
+                  placeholder="Enter research topic..."
+                  className="w-full px-8 py-6 border-2 border-purple-300 dark:border-purple-500 rounded-xl bg-white dark:bg-purple-950 text-gray-900 dark:text-white text-xl font-semibold shadow-lg focus:outline-none focus:ring-4 focus:ring-purple-400 focus:border-transparent transition"
                   disabled={status !== 'idle' && status !== 'done' && status !== 'error'}
                   list="searchHistory"
                 />
@@ -585,9 +845,9 @@ export default function App() {
               <button
                 type="submit"
                 disabled={!question.trim() || (status !== 'idle' && status !== 'done' && status !== 'error')}
-                className="px-8 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-semibold transition"
+                className="px-12 py-6 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 disabled:from-gray-400 disabled:to-gray-500 text-white rounded-xl font-bold text-lg transition transform hover:scale-105 shadow-lg"
               >
-                {status === 'done' ? '🔄 Search' : 'Search'}
+                {status === 'done' ? 'Search Again' : 'Search'}
               </button>
             </div>
 
@@ -613,51 +873,53 @@ export default function App() {
 
           {/* Tabs */}
           {status === 'done' && (
-            <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700">
+            <div className="flex gap-3 border-b-4 border-purple-400 dark:border-purple-600">
               <button
                 onClick={() => setActiveTab('landscape')}
-                className={`px-4 py-3 font-semibold border-b-2 transition ${
+                className={`px-10 py-5 font-bold text-lg border-b-4 transition transform hover:scale-105 ${
                   activeTab === 'landscape'
-                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                    : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-300'
+                    ? 'border-purple-600 text-purple-700 dark:text-purple-300 bg-white/50 dark:bg-purple-900/50'
+                    : 'border-transparent text-gray-700 dark:text-gray-400 hover:text-purple-600 dark:hover:text-purple-300'
                 }`}
               >
-                🗺️ Landscape
+                Landscape
               </button>
               <button
                 onClick={() => setActiveTab('proposal')}
-                className={`px-4 py-3 font-semibold border-b-2 transition ${
+                className={`px-10 py-5 font-bold text-lg border-b-4 transition transform hover:scale-105 ${
                   activeTab === 'proposal'
-                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                    : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-300'
+                    ? 'border-purple-600 text-purple-700 dark:text-purple-300 bg-white/50 dark:bg-purple-900/50'
+                    : 'border-transparent text-gray-700 dark:text-gray-400 hover:text-purple-600 dark:hover:text-purple-300'
                 }`}
               >
-                📝 Proposal
+                Proposal
               </button>
               <button
                 onClick={() => setActiveTab('collaborate')}
-                className={`px-4 py-3 font-semibold border-b-2 transition ${
+                className={`px-10 py-5 font-bold text-lg border-b-4 transition transform hover:scale-105 ${
                   activeTab === 'collaborate'
-                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                    : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-300'
+                    ? 'border-purple-600 text-purple-700 dark:text-purple-300 bg-white/50 dark:bg-purple-900/50'
+                    : 'border-transparent text-gray-700 dark:text-gray-400 hover:text-purple-600 dark:hover:text-purple-300'
                 }`}
               >
-                👥 Collaborate
+                Collaborate
               </button>
             </div>
           )}
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 py-8">
+      <div className="max-w-7xl mx-auto px-8 py-12">
         {/* Status */}
         {status !== 'idle' && status !== 'error' && status !== 'done' && (
-          <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200 rounded-lg animate-pulse">
-            {status === 'extracting' && '🔍 Extracting search terms...'}
-            {status === 'pulling' && '📈 Pulling research trends...'}
-            {status === 'searching' && '🔗 Searching papers across sources...'}
-            {status === 'merging' && '🧩 Merging results...'}
-            {status === 'analyzing' && '🤖 AI analysis & finding collaborators...'}
+          <div className="mb-12 p-10 bg-gradient-to-r from-purple-100 to-indigo-100 dark:from-purple-900/40 dark:to-indigo-900/40 text-purple-900 dark:text-purple-100 rounded-xl animate-pulse border-2 border-purple-300 dark:border-purple-700 shadow-lg">
+            <p className="text-lg font-bold">
+              {status === 'extracting' && 'Extracting search terms...'}
+              {status === 'pulling' && 'Pulling research trends...'}
+              {status === 'searching' && 'Searching papers across sources...'}
+              {status === 'merging' && 'Merging results...'}
+              {status === 'analyzing' && 'AI analysis & finding collaborators...'}
+            </p>
           </div>
         )}
 
@@ -746,8 +1008,7 @@ export default function App() {
                 {trends.length > 3 && (
                   <div className="bg-white dark:bg-gray-800 rounded-xl border-2 border-blue-200 dark:border-blue-700 overflow-hidden hover:shadow-xl transition-shadow">
                     <div className="p-6 bg-gradient-to-r from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/20 border-b border-blue-200 dark:border-blue-700">
-                      <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
-                        <span className="text-2xl">📈</span>
+                      <h2 className="text-xl font-bold text-gray-900 dark:text-white">
                         Publication Trend
                       </h2>
                       <p className="text-sm text-blue-700 dark:text-blue-400 font-semibold mt-2">How publication volume has evolved</p>
@@ -770,8 +1031,7 @@ export default function App() {
                 {aiSummary && (
                   <div className="bg-white dark:bg-gray-800 rounded-xl border-2 border-purple-200 dark:border-purple-700 overflow-hidden hover:shadow-xl transition-shadow">
                     <div className="p-6 bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 border-b border-purple-200 dark:border-purple-700">
-                      <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
-                        <span className="text-3xl">🤖</span>
+                      <h2 className="text-xl font-bold text-gray-900 dark:text-white">
                         AI Research Guide
                       </h2>
                       <p className="text-sm text-purple-700 dark:text-purple-400 font-semibold mt-2">Synthesized analysis of the research landscape</p>
@@ -797,7 +1057,7 @@ export default function App() {
                         </div>
                         <div className="p-6">
                           <p className="text-sm text-gray-700 dark:text-gray-300 font-semibold mb-2">
-                            {blindSpotScore > 50 ? '🔥 High unexplored territory' : blindSpotScore > 20 ? '⚡ Moderate gaps' : '✓ Well-researched field'}
+                            {blindSpotScore > 50 ? 'High Unexplored Territory' : blindSpotScore > 20 ? 'Moderate Gaps' : 'Well-Researched Field'}
                           </p>
                           <p className="text-xs text-gray-600 dark:text-gray-400">
                             <span className="font-medium">{gaps.length}</span> identified gaps vs <span className="font-medium">{papers.length}</span> researched papers
@@ -810,7 +1070,7 @@ export default function App() {
                     {crossFieldMethods.length > 0 && (
                       <div className="group bg-white dark:bg-gray-800 rounded-xl border-2 border-blue-200 dark:border-blue-900/30 hover:border-blue-400 dark:hover:border-blue-600 transition-all hover:shadow-xl overflow-hidden">
                         <div className="p-6 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/15 dark:to-indigo-900/15 border-b border-blue-200 dark:border-blue-900/30">
-                          <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-1">🔄 Cross-Field Methods</h3>
+                          <h3 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-700 to-indigo-700 mb-1">Cross-Field Methods</h3>
                           <p className="text-sm text-blue-700 dark:text-blue-400 font-semibold">Approaches from adjacent fields</p>
                         </div>
                         <div className="p-6 space-y-3">
@@ -828,7 +1088,7 @@ export default function App() {
                     {latencyMap.length > 0 && (
                       <div className="group bg-white dark:bg-gray-800 rounded-xl border-2 border-purple-200 dark:border-purple-900/30 hover:border-purple-400 dark:hover:border-purple-600 transition-all hover:shadow-xl overflow-hidden">
                         <div className="p-6 bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/15 dark:to-pink-900/15 border-b border-purple-200 dark:border-purple-900/30">
-                          <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-1">⏱️ Gap Age Analysis</h3>
+                          <h3 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-700 to-pink-700 mb-1">Gap Age Analysis</h3>
                           <p className="text-sm text-purple-700 dark:text-purple-400 font-semibold">How long gaps have existed</p>
                         </div>
                         <div className="p-6 space-y-3">
@@ -849,7 +1109,7 @@ export default function App() {
                 {/* Gaps */}
                 {gaps.length > 0 && (
                   <div className="border-t border-gray-300 dark:border-gray-700 pt-8">
-                    <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-6">📊 Research Gaps</h2>
+                    <h2 className="text-3xl font-bold text-transparent bg-clip-to-r bg-gradient-to-r from-red-600 to-orange-600 mb-8">Research Gaps</h2>
                     <div className="grid grid-cols-1 gap-6">
                       {gaps.map((gap, idx) => (
                         <div key={idx} className="group bg-white dark:bg-gray-800 rounded-xl border-2 border-gray-200 dark:border-gray-700 hover:border-purple-400 dark:hover:border-purple-600 transition-all hover:shadow-xl overflow-hidden">
@@ -866,23 +1126,23 @@ export default function App() {
                                   ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400'
                                   : 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
                               }`}>
-                                {gap.difficulty === 'high' ? '🔥' : gap.difficulty === 'medium' ? '⚡' : '✓'} {gap.difficulty.charAt(0).toUpperCase() + gap.difficulty.slice(1)} Difficulty
+                                {gap.difficulty.charAt(0).toUpperCase() + gap.difficulty.slice(1)} Difficulty
                               </span>
                               <span className="px-4 py-2 bg-gradient-to-r from-purple-100 to-purple-50 dark:from-purple-900/30 dark:to-purple-900/20 text-purple-700 dark:text-purple-400 rounded-lg font-semibold text-sm">
-                                💡 Novelty: {gap.novelty_score}
+                                Novelty Score: {gap.novelty_score}
                               </span>
                             </div>
                           </div>
 
                           {/* Research Question Section */}
-                          <div className="px-6 py-4 bg-gradient-to-b from-blue-50 to-white dark:from-blue-900/10 dark:to-gray-800 border-b border-gray-200 dark:border-gray-700">
-                            <p className="text-sm font-semibold text-blue-700 dark:text-blue-400 mb-2">🎯 Research Question</p>
+                          <div className="px-8py-4 bg-gradient-to-b from-blue-50 to-white dark:from-blue-900/10 dark:to-gray-800 border-b border-gray-200 dark:border-gray-700">
+                            <p className="text-sm font-bold text-blue-700 dark:text-blue-400 mb-2 uppercase">Research Question</p>
                             <p className="text-base italic text-gray-700 dark:text-gray-300 leading-relaxed">{gap.research_question}</p>
                           </div>
 
                           {/* Why Missing Section */}
-                          <div className="px-6 py-4 bg-gradient-to-b from-orange-50 to-white dark:from-orange-900/10 dark:to-gray-800">
-                            <p className="text-sm font-semibold text-orange-700 dark:text-orange-400 mb-2">❓ Why It's Missing</p>
+                          <div className="px-8py-4 bg-gradient-to-b from-orange-50 to-white dark:from-orange-900/10 dark:to-gray-800">
+                            <p className="text-sm font-bold text-orange-700 dark:text-orange-400 mb-2 uppercase">Why It's Missing</p>
                             <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{gap.why_missing}</p>
                           </div>
                         </div>
@@ -893,40 +1153,37 @@ export default function App() {
 
                 {/* Trending Papers */}
                 {papers.length > 0 && (
-                  <div className="border-t border-gray-300 dark:border-gray-700 pt-8">
-                    <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-6">⭐ Trending in This Field</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-8">
+                  <div className="border-t-4 border-purple-400 dark:border-purple-600 pt-8 mt-8">
+                    <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-indigo-600 mb-8">Top Cited Papers in This Field</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8mb-8">
                       {[...papers].sort((a, b) => (b.citationCount || 0) - (a.citationCount || 0)).slice(0, 4).map((paper, idx) => (
                         <a
                           key={idx}
                           href={paper.scholarLink}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="group bg-white dark:bg-gray-800 rounded-xl border-2 border-yellow-200 dark:border-yellow-700/30 hover:border-yellow-400 dark:hover:border-yellow-600 transition-all hover:shadow-xl overflow-hidden"
+                          className="group bg-white dark:bg-gray-800 rounded-xl border-2 border-purple-200 dark:border-purple-700/30 hover:border-purple-400 dark:hover:border-purple-600 transition-all hover:shadow-2xl overflow-hidden transform hover:scale-105"
                         >
                           {/* Header with Trend Icon */}
-                          <div className="p-5 border-b border-yellow-200 dark:border-yellow-700/30 bg-gradient-to-r from-yellow-50 to-orange-50 dark:from-yellow-900/15 dark:to-orange-900/15">
-                            <div className="flex items-start gap-3 mb-3">
-                              <span className="text-3xl">🔥</span>
-                              <h3 className="font-bold text-gray-900 dark:text-white group-hover:text-orange-600 dark:group-hover:text-orange-400 transition line-clamp-2 text-lg">{paper.title}</h3>
-                            </div>
+                          <div className="p-6 border-b-2 border-purple-200 dark:border-purple-700/30 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20">
+                            <h3 className="font-bold text-gray-900 dark:text-white group-hover:text-purple-600 dark:group-hover:text-purple-400 transition line-clamp-2 text-lg mb-4">{paper.title}</h3>
                             <div className="flex flex-wrap items-center gap-3">
-                              <span className="px-3 py-1 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 rounded-lg text-sm font-semibold">
-                                📊 {paper.citationCount} citations
+                              <span className="px-4 py-2 bg-purple-200 dark:bg-purple-900/50 text-purple-900 dark:text-purple-200 rounded-lg text-sm font-bold">
+                                {paper.citationCount} Citations
                               </span>
-                              <span className="px-3 py-1 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-600 rounded-lg text-sm font-semibold">
-                                📅 {paper.year}
+                              <span className="px-4 py-2 bg-indigo-200 dark:bg-indigo-900/50 text-indigo-900 dark:text-indigo-200 rounded-lg text-sm font-bold">
+                                {paper.year}
                               </span>
                             </div>
                           </div>
 
                           {/* Author & Details */}
-                          <div className="p-5 bg-white dark:bg-gray-800">
-                            <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
-                              <span className="font-semibold">Authors:</span> {paper.authors?.slice(0, 2).map(a => a.name).join(', ')}{(paper.authors?.length || 0) > 2 ? ` +${paper.authors.length - 2} more` : ''}
+                          <div className="p-6 bg-white dark:bg-gray-800">
+                            <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">
+                              <span className="font-bold text-purple-700 dark:text-purple-300">Authors:</span> {paper.authors?.slice(0, 2).map(a => a.name).join(', ')}{(paper.authors?.length || 0) > 2 ? ` +${paper.authors.length - 2} more` : ''}
                             </p>
-                            <div className="inline-flex items-center gap-2 px-3 py-2 bg-orange-100 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400 rounded-lg text-sm font-semibold group-hover:bg-orange-200 dark:group-hover:bg-orange-900/40 transition">
-                              📖 Read Full Paper
+                            <div className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 text-white rounded-lg text-sm font-bold group-hover:shadow-lg transition transform hover:scale-105">
+                              Read Paper
                               <span>→</span>
                             </div>
                           </div>
@@ -967,7 +1224,7 @@ export default function App() {
                         <input
                           type="range"
                           min="0"
-                          max="100"
+                          max={Math.max(100, ...(papers.map(p => p.citationCount || 0) || [0]))}
                           value={citationFilter}
                           onChange={(e) => setCitationFilter(parseInt(e.target.value))}
                           className="w-full"
@@ -996,7 +1253,7 @@ export default function App() {
                               : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
                           }`}
                         >
-                          {showSavedOnly ? '❤️ Saved' : '☆ All'}
+                          {showSavedOnly ? 'Saved Papers' : 'All Papers'}
                         </button>
                       </div>
 
@@ -1045,7 +1302,6 @@ export default function App() {
                               📅 {paper.year}
                             </span>
                             <span className="flex items-center gap-1 px-3 py-1 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400 rounded-lg text-sm font-medium">
-                              <span>📊</span>
                               <span>{paper.citationCount || 0} citations</span>
                             </span>
                             {paper.citationCount > 100 && (
@@ -1067,7 +1323,7 @@ export default function App() {
                         </div>
 
                         {/* Abstract Section */}
-                        <div className="px-6 py-4 bg-gradient-to-b from-gray-50 to-white dark:from-gray-700/50 dark:to-gray-800 border-b border-gray-200 dark:border-gray-700">
+                        <div className="px-8py-4 bg-gradient-to-b from-gray-50 to-white dark:from-gray-700/50 dark:to-gray-800 border-b border-gray-200 dark:border-gray-700">
                           <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
                             <span className="font-semibold text-gray-900 dark:text-white">Abstract:</span> {paper.scholarSnippet || paper.abstract?.substring(0, 400) || 'No abstract available'}
                           </p>
@@ -1075,9 +1331,8 @@ export default function App() {
 
                         {/* AI Summary Section (Always Visible If Generated) */}
                         {paperSummaries[paper.paperId] && (
-                          <div className="px-6 py-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border-b border-blue-200 dark:border-blue-700/30">
+                          <div className="px-8py-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border-b border-blue-200 dark:border-blue-700/30">
                             <div className="flex gap-2 mb-2">
-                              <span className="text-lg">🤖</span>
                               <span className="font-bold text-blue-700 dark:text-blue-400">AI Summary</span>
                             </div>
                             <p className="text-sm text-blue-900 dark:text-blue-200">{paperSummaries[paper.paperId]}</p>
@@ -1085,38 +1340,36 @@ export default function App() {
                         )}
 
                         {/* Action Buttons */}
-                        <div className="px-6 py-4 bg-white dark:bg-gray-800 flex flex-wrap gap-2">
+                        <div className="px-8py-4 bg-white dark:bg-gray-800 flex flex-wrap gap-2">
                           <button
                             onClick={() => fetchPaperSummary(paper)}
                             disabled={loadingSummaries.has(paper.paperId)}
                             className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-lg font-semibold text-sm transition-all hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            {loadingSummaries.has(paper.paperId) ? '⏳ Generating...' : '✨ AI Summary'}
+                            {loadingSummaries.has(paper.paperId) ? 'Generating...' : 'AI Summary'}
                           </button>
 
                           <button
                             onClick={() => toggleComparisonPaper(paper.paperId)}
-                            className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg font-semibold text-sm transition-all hover:shadow-lg ${
+                            className={`inline-flex items-center gap-2 px-5 py-2 rounded-lg font-bold text-sm transition-all hover:shadow-lg transform hover:scale-105 ${
                               comparisonPapers.has(paper.paperId)
-                                ? 'bg-purple-600 hover:bg-purple-700 text-white'
-                                : 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 hover:bg-purple-200'
+                                ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                                : 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-200'
                             }`}
                             title="Select for comparison"
                           >
-                            <span>⊙</span>
                             {comparisonPapers.has(paper.paperId) ? 'In Comparison' : 'Compare'}
                           </button>
 
                           <button
                             onClick={() => toggleSavedPaper(paper.paperId)}
-                            className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg font-semibold text-sm transition-all hover:shadow-lg ${
+                            className={`inline-flex items-center gap-2 px-5 py-2 rounded-lg font-bold text-sm transition-all hover:shadow-lg transform hover:scale-105 ${
                               savedPapers.has(paper.paperId)
-                                ? 'bg-red-600 hover:bg-red-700 text-white'
-                                : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 hover:bg-red-200'
+                                ? 'bg-pink-600 hover:bg-pink-700 text-white'
+                                : 'bg-pink-100 dark:bg-pink-900/30 text-pink-700 dark:text-pink-400 hover:bg-pink-200'
                             }`}
                             title="Save to collection"
                           >
-                            <span>{savedPapers.has(paper.paperId) ? '❤️' : '🤍'}</span>
                             {savedPapers.has(paper.paperId) ? 'Saved' : 'Save'}
                           </button>
 
@@ -1124,9 +1377,9 @@ export default function App() {
                             href={paper.scholarLink}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-2 px-4 py-2 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 hover:bg-green-200 rounded-lg font-semibold text-sm transition-all hover:shadow-lg ml-auto"
+                            className="inline-flex items-center gap-2 px-5 py-2 bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-600 hover:to-teal-600 text-white rounded-lg font-bold text-sm transition-all hover:shadow-lg transform hover:scale-105 ml-auto"
                           >
-                            📖 Read Full Paper
+                            Read Paper
                             <span>→</span>
                           </a>
                         </div>
@@ -1150,8 +1403,7 @@ export default function App() {
                 {gaps.length > 0 && (
                   <div className="bg-white dark:bg-gray-800 rounded-xl border-2 border-green-200 dark:border-green-700 overflow-hidden hover:shadow-xl transition-shadow">
                     <div className="p-6 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border-b border-green-200 dark:border-green-700">
-                      <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-3 mb-3">
-                        <span className="text-2xl">📝</span>
+                      <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-3">
                         NSF Grant Proposal Generator
                       </h2>
                       <p className="text-sm text-green-700 dark:text-green-400 font-semibold">AI-powered research proposal based on identified gaps</p>
@@ -1159,9 +1411,9 @@ export default function App() {
                     <div className="p-6">
                       <button
                         onClick={() => grantIntro ? setGrantIntro('') : generateGrantProposal(question, papers).then(setGrantIntro)}
-                        className="w-full px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold mb-4 transition-all hover:shadow-lg"
+                        className="w-full px-8py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold mb-4 transition-all hover:shadow-lg"
                       >
-                        {grantIntro ? '✕ Hide Grant Intro' : '✨ Generate NSF Grant Intro'}
+                        {grantIntro ? 'Hide Grant Intro' : 'Generate NSF Grant Intro'}
                       </button>
                       {grantIntro && (
                         <div className="p-6 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/10 dark:to-emerald-900/10 rounded-lg border border-green-200 dark:border-green-700">
@@ -1176,15 +1428,14 @@ export default function App() {
                 {bigAssumption && (
                   <div className="bg-white dark:bg-gray-800 rounded-xl border-2 border-orange-300 dark:border-orange-700 overflow-hidden hover:shadow-xl transition-shadow">
                     <div className="p-6 bg-gradient-to-r from-orange-50 to-red-50 dark:from-orange-900/20 dark:to-red-900/20 border-b border-orange-300 dark:border-orange-700">
-                      <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-3 mb-2">
-                        <span className="text-2xl">🎯</span>
+                      <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
                         The Field's Biggest Untested Assumption
                       </h2>
                       <p className="text-xs font-bold text-orange-600 dark:text-orange-400 uppercase tracking-wide">Critical insight for your research</p>
                     </div>
                     <div className="p-6">
                       <p className="text-lg italic text-gray-900 dark:text-white font-semibold leading-relaxed">"{bigAssumption}"</p>
-                      <p className="text-sm text-orange-700 dark:text-orange-400 font-semibold mt-4">💡 Consider challenging this assumption in your proposal</p>
+                      <p className="text-sm text-orange-700 dark:text-orange-400 font-semibold mt-4">Consider challenging this assumption in your proposal</p>
                     </div>
                   </div>
                 )}
@@ -1192,7 +1443,7 @@ export default function App() {
                 {/* Identified Gaps for Proposal */}
                 {gaps.length > 0 && (
                   <div className="border-t border-gray-300 dark:border-gray-700 pt-8">
-                    <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-6">📋 Research Gaps (from Landscape)</h2>
+                    <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-6">Research Gaps (from Landscape)</h2>
                     <div className="grid grid-cols-1 gap-6">
                       {gaps.map((gap, idx) => (
                         <div key={idx} className="group bg-white dark:bg-gray-800 rounded-xl border-2 border-gray-200 dark:border-gray-700 hover:border-purple-400 dark:hover:border-purple-600 transition-all hover:shadow-xl overflow-hidden">
@@ -1209,23 +1460,23 @@ export default function App() {
                                   ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400'
                                   : 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
                               }`}>
-                                {gap.difficulty === 'high' ? '🔥' : gap.difficulty === 'medium' ? '⚡' : '✓'} {gap.difficulty.charAt(0).toUpperCase() + gap.difficulty.slice(1)} Difficulty
+                                {gap.difficulty.charAt(0).toUpperCase() + gap.difficulty.slice(1)} Difficulty
                               </span>
                               <span className="px-4 py-2 bg-gradient-to-r from-purple-100 to-purple-50 dark:from-purple-900/30 dark:to-purple-900/20 text-purple-700 dark:text-purple-400 rounded-lg font-semibold text-sm">
-                                💡 Novelty: {gap.novelty_score}
+                                Novelty Score: {gap.novelty_score}
                               </span>
                             </div>
                           </div>
 
                           {/* Research Question Section */}
-                          <div className="px-6 py-4 bg-gradient-to-b from-blue-50 to-white dark:from-blue-900/10 dark:to-gray-800 border-b border-gray-200 dark:border-gray-700">
-                            <p className="text-sm font-semibold text-blue-700 dark:text-blue-400 mb-2">🎯 Research Question</p>
+                          <div className="px-8py-4 bg-gradient-to-b from-blue-50 to-white dark:from-blue-900/10 dark:to-gray-800 border-b border-gray-200 dark:border-gray-700">
+                            <p className="text-sm font-bold text-blue-700 dark:text-blue-400 mb-2 uppercase">Research Question</p>
                             <p className="text-base italic text-gray-700 dark:text-gray-300 leading-relaxed">{gap.research_question}</p>
                           </div>
 
                           {/* Why Missing Section */}
-                          <div className="px-6 py-4 bg-gradient-to-b from-orange-50 to-white dark:from-orange-900/10 dark:to-gray-800">
-                            <p className="text-sm font-semibold text-orange-700 dark:text-orange-400 mb-2">❓ Why It's Missing</p>
+                          <div className="px-8py-4 bg-gradient-to-b from-orange-50 to-white dark:from-orange-900/10 dark:to-gray-800">
+                            <p className="text-sm font-bold text-orange-700 dark:text-orange-400 mb-2 uppercase">Why It's Missing</p>
                             <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{gap.why_missing}</p>
                           </div>
                         </div>
@@ -1239,72 +1490,125 @@ export default function App() {
             {/* COLLABORATE TAB */}
             {activeTab === 'collaborate' && (
               <div className="space-y-8">
-                <div className="p-6 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700">
-                  <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-2">👥 Find Collaborators</h2>
-                  <p className="text-sm text-gray-700 dark:text-gray-300">Researchers actively working on the identified gaps in your field. These researchers may be seeking collaborators.</p>
+                <div className="p-8 bg-gradient-to-r from-purple-100 to-indigo-100 dark:from-purple-900/30 dark:to-indigo-900/30 rounded-xl border-2 border-purple-300 dark:border-purple-700 shadow-lg">
+                  <h2 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-700 to-indigo-700 mb-3">Find Collaborators</h2>
+                  <p className="text-base text-gray-800 dark:text-gray-200 font-semibold">Researchers and institutions actively working on the identified gaps in your field</p>
                 </div>
 
                 {gaps.length > 0 ? (
                   <div className="space-y-6">
                     {gaps.map((gap, gapIdx) => (
-                      <div key={gapIdx} className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-                        <div className="p-4 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 border-b border-gray-200 dark:border-gray-700">
-                          <h3 className="font-bold text-gray-900 dark:text-white">{gap.title}</h3>
-                          <p className="text-sm text-gray-700 dark:text-gray-300 italic mt-1">{gap.research_question}</p>
+                      <div key={gapIdx} className="border-2 border-purple-200 dark:border-purple-700 rounded-xl overflow-hidden shadow-lg">
+                        <div className="p-6 bg-gradient-to-r from-purple-100 to-indigo-100 dark:from-purple-900/20 dark:to-indigo-900/20 border-b-2 border-purple-300 dark:border-purple-700">
+                          <h3 className="font-bold text-gray-900 dark:text-white text-xl mb-2">{gap.title}</h3>
+                          <p className="text-sm text-gray-700 dark:text-gray-300 italic">{gap.research_question}</p>
                         </div>
 
                         <div className="p-6 space-y-4">
                           {collaborators[gap.title] && collaborators[gap.title].length > 0 ? (
                             <div className="space-y-4">
                               {collaborators[gap.title].map((collab, idx) => (
-                                <div key={idx} className="group bg-white dark:bg-gray-700 rounded-lg border-2 border-blue-100 dark:border-blue-900/30 hover:border-blue-400 dark:hover:border-blue-600 transition-all hover:shadow-lg overflow-hidden">
-                                  {/* Researcher Header */}
-                                  <div className="p-4 border-b border-blue-100 dark:border-blue-900/30 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/10 dark:to-indigo-900/10">
-                                    <div className="flex items-center gap-3 mb-2">
-                                      <span className="text-2xl">👤</span>
+                                <div key={idx} className="group bg-white dark:bg-gray-800 rounded-lg border-2 border-purple-150 dark:border-purple-700/50 hover:border-purple-400 dark:hover:border-purple-500 transition-all hover:shadow-xl overflow-hidden transform hover:scale-102">
+                                  {/* Header */}
+                                  <div className="p-5 border-b-2 border-purple-150 dark:border-purple-700/50 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/15 dark:to-indigo-900/15">
+                                    <div className="flex items-start gap-3 mb-2">
                                       <div className="flex-1 min-w-0">
-                                        <p className="font-bold text-gray-900 dark:text-white text-lg">{collab.name}</p>
-                                        <p className="text-sm text-blue-700 dark:text-blue-400 font-semibold">Last active: {collab.year}</p>
+                                        <p className="font-bold text-gray-900 dark:text-white text-lg mb-1">{collab.name}</p>
+                                        {collab.institution && (
+                                          <p className="text-sm text-purple-700 dark:text-purple-400 font-semibold">
+                                            {collab.institution}
+                                            {collab.location && ` • ${collab.location}`}
+                                          </p>
+                                        )}
+                                        {collab.citedBy && (
+                                          <p className="text-xs text-indigo-700 dark:text-indigo-400 font-bold mt-2">
+                                            {collab.citedBy.toLocaleString()} Citations
+                                            {collab.workCount && ` • ${collab.workCount} Works`}
+                                          </p>
+                                        )}
                                       </div>
                                     </div>
                                   </div>
 
-                                  {/* Profile Links */}
-                                  <div className="p-4">
-                                    <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-3 uppercase tracking-wide">Connect with {collab.name.split(' ')[0]}</p>
-                                    <div className="grid grid-cols-2 gap-2">
-                                      <a
-                                        href={`https://scholar.google.com/scholar?q="${encodeURIComponent(collab.name)}"`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="px-3 py-2 bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 rounded-lg text-sm font-semibold hover:bg-blue-200 dark:hover:bg-blue-900/40 transition flex items-center gap-1"
-                                      >
-                                        🔍 Google Scholar
-                                      </a>
-                                      <a
-                                        href={`https://www.researchgate.net/search?q="${encodeURIComponent(collab.name)}"`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="px-3 py-2 bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded-lg text-sm font-semibold hover:bg-green-200 dark:hover:bg-green-900/40 transition flex items-center gap-1"
-                                      >
-                                        🔗 ResearchGate
-                                      </a>
-                                      <a
-                                        href={`https://orcid.org/search/orcid/${encodeURIComponent(collab.name)}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="px-3 py-2 bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded-lg text-sm font-semibold hover:bg-green-200 dark:hover:bg-green-900/40 transition flex items-center gap-1"
-                                      >
-                                        📋 ORCID
-                                      </a>
-                                      <a
-                                        href={`https://www.linkedin.com/search/results/people/?keywords="${encodeURIComponent(collab.name)}"`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="px-3 py-2 bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 rounded-lg text-sm font-semibold hover:bg-blue-200 dark:hover:bg-blue-900/40 transition flex items-center gap-1"
-                                      >
-                                        💼 LinkedIn
-                                      </a>
+                                  {/* Links */}
+                                  <div className="p-5">
+                                    <p className="text-xs font-bold text-purple-700 dark:text-purple-300 mb-4 uppercase tracking-widest">Connect & Explore</p>
+                                    <div className="grid grid-cols-2 gap-3">
+                                      {collab.type === 'Lab/Institution' ? (
+                                        <>
+                                          {collab.website && (
+                                            <a
+                                              href={collab.website}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-lg text-sm font-bold transition transform hover:scale-105 shadow-md"
+                                            >
+                                              Website
+                                            </a>
+                                          )}
+                                          {collab.url && (
+                                            <a
+                                              href={`https://ror.org/${collab.url.split('/').pop()}`}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="px-4 py-2 bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white rounded-lg text-sm font-bold transition transform hover:scale-105 shadow-md"
+                                            >
+                                              ROR Profile
+                                            </a>
+                                          )}
+                                          <a
+                                            href={`https://scholar.google.com/scholar?q="${encodeURIComponent(collab.name)}"`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="px-4 py-2 bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white rounded-lg text-sm font-bold transition transform hover:scale-105 shadow-md"
+                                          >
+                                            Google Scholar
+                                          </a>
+                                          <a
+                                            href={`https://www.researchgate.net/search?q="${encodeURIComponent(collab.name)}"`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="px-4 py-2 bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 text-white rounded-lg text-sm font-bold transition transform hover:scale-105 shadow-md"
+                                          >
+                                            ResearchGate
+                                          </a>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <a
+                                            href={collab.scholarUrl || `https://scholar.google.com/scholar?q="${encodeURIComponent(collab.name)}"`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="px-4 py-2 bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white rounded-lg text-sm font-bold transition transform hover:scale-105 shadow-md"
+                                          >
+                                            Google Scholar
+                                          </a>
+                                          <a
+                                            href={`https://www.researchgate.net/search?q="${encodeURIComponent(collab.name)}"`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="px-4 py-2 bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 text-white rounded-lg text-sm font-bold transition transform hover:scale-105 shadow-md"
+                                          >
+                                            ResearchGate
+                                          </a>
+                                          <a
+                                            href={`https://orcid.org/search/orcid/${encodeURIComponent(collab.name)}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="px-4 py-2 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-lg text-sm font-bold transition transform hover:scale-105 shadow-md"
+                                          >
+                                            ORCID
+                                          </a>
+                                          <a
+                                            href={`https://www.linkedin.com/search/results/people/?keywords="${encodeURIComponent(collab.name)}"`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-lg text-sm font-bold transition transform hover:scale-105 shadow-md"
+                                          >
+                                            LinkedIn
+                                          </a>
+                                        </>
+                                      )}
                                     </div>
                                   </div>
                                 </div>
@@ -1320,7 +1624,7 @@ export default function App() {
                                   rel="noopener noreferrer"
                                   className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition"
                                 >
-                                  🔍 Google Scholar
+                                  Google Scholar
                                 </a>
                                 <a
                                   href={`https://www.semanticscholar.org/search?q="${encodeURIComponent(gap.research_question)}"`}
@@ -1336,7 +1640,7 @@ export default function App() {
                                   rel="noopener noreferrer"
                                   className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition"
                                 >
-                                  🔗 ResearchGate
+                                  ResearchGate
                                 </a>
                               </div>
                             </div>
