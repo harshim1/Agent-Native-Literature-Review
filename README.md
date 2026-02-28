@@ -31,7 +31,8 @@
 - npm or yarn
 
 ### Installation
-
+![Screenshot](images/Screenshot 2026-02-27 at 6.13.32 PM.heic)
+![Screenshot](images/Screenshot 2026-02-27 at 8.19.57 PM.heic)
 ```bash
 cd litreview
 npm install
